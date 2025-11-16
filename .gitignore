@@ -1,0 +1,4 @@
+run_*
+**/__pycache__
+data
+.coverage
