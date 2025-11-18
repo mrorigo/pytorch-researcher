@@ -15,11 +15,30 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
+
+# Memori integration for manual memory management
+# Apply essential patches for FTS5 and timeout issues
+# try:
+#     from memori_patches import *
+# except ImportError:
+#     pass  # Enhanced patches not available, continue without them
+
+try:
+    from memori import Memori
+except ImportError as e:
+    raise ImportError(f"Required dependency 'memori' not found: {e}") from e
+
+# Manual memory management for controlled operations
+from pytorch_researcher.src.memory import (
+    ManualMemoryContextManager,
+    create_manual_memory_manager,
+)
 
 # Planning LLM and high-level orchestrator
 from pytorch_researcher.src.planning_llm.client import (
@@ -47,17 +66,49 @@ from pytorch_researcher.src.utils import (
     write_file,
 )
 
+# Research report generator for automatic report generation
+from pytorch_researcher.src.research_report_generator import generate_research_report
+
 LOG = logging.getLogger("agent.orchestrator")
 
 
 def _ensure_logger(verbose: bool = False) -> None:
     """Ensure the root logger is configured for console output."""
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    
+    # Configure root logger to ensure proper propagation
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        root_handler = logging.StreamHandler(sys.stdout)
+        root_handler.setFormatter(logging.Formatter(fmt))
+        root_logger.addHandler(root_handler)
+    
+    root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    
+    # Configure the orchestrator logger - DO NOT PROPAGATE to avoid duplication
     if not LOG.handlers:
         handler = logging.StreamHandler(sys.stdout)
-        fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
         handler.setFormatter(logging.Formatter(fmt))
         LOG.addHandler(handler)
     LOG.setLevel(logging.DEBUG if verbose else logging.INFO)
+    LOG.propagate = False  # 🔧 CRITICAL FIX: Prevent duplicate logging
+    
+    # Configure child loggers to propagate to parent (but not to root)
+    child_loggers = [
+        "pytorch_researcher.src.planning_llm.client",
+        "pytorch_researcher.src.pytorch_tools.llm",
+        "pytorch_researcher.src.memory"
+    ]
+    
+    for logger_name in child_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+        logger.propagate = True  # Child loggers propagate to orchestrator logger
+    
+    # Set specific loggers to appropriate levels for debugging
+    logging.getLogger("pytorch_researcher.src.planning_llm.client").setLevel(logging.DEBUG if verbose else logging.INFO)
+    logging.getLogger("pytorch_researcher.src.pytorch_tools.llm").setLevel(logging.DEBUG if verbose else logging.INFO)
+    logging.getLogger("pytorch_researcher.src.memory").setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
 def _registry_path_for(project_root: str) -> Path:
@@ -76,13 +127,17 @@ def _append_registry(project_root: str, entry: Dict[str, Any]) -> None:
     write_file(str(reg), json.dumps(current, indent=2), overwrite=True)
 
 
-def _build_evaluator_callable() -> callable:
+def _build_evaluator_callable(evaluation_config: Dict[str, Any] | None = None) -> Any:
     """Return a callable for model evaluation suitable for the orchestrator.
 
     The callable signature is `(model_path: str, model_config: dict) -> dict`.
     It dynamically imports the generated model, instantiates the class named
     in `model_config["class_name"]` (or `AssembledModel`), and runs a
     one-shot quick evaluation using `quick_evaluate_once`.
+
+    Args:
+        evaluation_config: Optional evaluation configuration from planning LLM.
+                          If provided, overrides default QuickEvalConfig values.
     """
 
     def _evaluator(model_path: str, model_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,11 +166,26 @@ def _build_evaluator_callable() -> callable:
             if cls is None:
                 raise RuntimeError("Could not locate model class in generated module")
 
+            # Create QuickEvalConfig with planning LLM recommendations if available
+            if evaluation_config:
+                # Use planning LLM's evaluation configuration
+                eval_cfg = QuickEvalConfig(
+                    dataset_name=evaluation_config.get("dataset_name", "cifar10"),
+                    subset_size=evaluation_config.get("subset_size", 512),
+                    epochs=evaluation_config.get("epochs", 1),
+                    batch_size=evaluation_config.get("batch_size", 32),
+                    target_accuracy=evaluation_config.get("target_accuracy", 0.7)
+                )
+                LOG.info(f"🎯 Using planning LLM evaluation config: {evaluation_config.get('dataset_name', 'cifar10')} dataset")
+            else:
+                # Fallback to default configuration
+                eval_cfg = QuickEvalConfig(epochs=1, subset_size=512, batch_size=32)
+                LOG.info("⚠️ Using default evaluation config (no planning LLM config available)")
+
             # Instantiate model and run quick evaluation
             inst = cls()
-            cfg = QuickEvalConfig(epochs=1, subset_size=512, batch_size=32)
             # direct call, as quick_evaluate_once is now guaranteed to be imported
-            return quick_evaluate_once(inst, cfg)
+            return quick_evaluate_once(inst, eval_cfg)
         except Exception as exc:
             return {"error": str(exc)}
 
@@ -167,16 +237,69 @@ def run(
         LOG.info("Created project scaffold at %s", project_root)
         results["project_root"] = project_root
 
-        # Instantiate planning LLM client
+        # Initialize manual memory manager for controlled memory operations
+        LOG.info("🧠 MEMORY SYSTEM: Initializing conscious memory management...")
+        try:
+            from pytorch_researcher.src.memory import create_manual_memory_manager
+            
+            memory_manager = create_manual_memory_manager(
+                llm_base_url=llm_base_url,
+                llm_model=llm_model,
+                llm_api_key=llm_api_key,
+                verbose=verbose
+            )
+            
+            # Detailed memory initialization logging
+            if memory_manager.enabled:
+                LOG.info("🧠 MEMORY SYSTEM: ✅ MANUAL MEMORY MANAGER ACTIVE")
+                LOG.info("🧠 MEMORY SYSTEM:   - conscious_ingest=True (conscious processing enabled)")
+                LOG.info("🧠 MEMORY SYSTEM:   - auto_ingest=False (no auto-interception)")
+                LOG.info("🧠 MEMORY SYSTEM:   - Option A configuration: conscious processing without auto-interception")
+                LOG.info("🧠 MEMORY SYSTEM:   - All memory operations are explicit and controlled")
+            else:
+                LOG.info("🧠 MEMORY SYSTEM: ⚠️ Manual memory manager initialized but disabled")
+            
+        except Exception as e:
+            LOG.warning(f"🧠 MEMORY SYSTEM: ❌ Manual memory manager initialization failed, continuing without memory: {e}")
+            # Create a minimal disabled memory manager as fallback
+            from pytorch_researcher.src.memory import ManualMemoryContextManager
+            disabled_memori = Memori(conscious_ingest=False, auto_ingest=False)
+            disabled_memory_manager = ManualMemoryContextManager(disabled_memori)
+            disabled_memory_manager.enable_manual_mode()
+            memory_manager = disabled_memory_manager
+
+        # Generate run ID for LLM logging
+        run_id = f"run-{datetime.utcnow().isoformat()}"
+        
+        # Instantiate planning LLM client (now using LiteLLM internally with LLM logging)
         planning_client = PlanningLLMClient(
-            base_url=llm_base_url, model=llm_model, api_key=llm_api_key
+            base_url=llm_base_url, model=llm_model, api_key=llm_api_key, run_id=run_id
         )
 
-        # Wire assembler, summarizer, sandbox, and evaluator callables
-        assembler_callable = assemble_from_config
+        # Get initial proposal to extract evaluation configuration
+        LOG.info("🤖 Getting initial proposal from planning LLM...")
+        proposal = planning_client.propose_initial_config(goal=goal, constraints=None)
+        evaluation_config = proposal.get("evaluation_config")
+        if evaluation_config:
+            LOG.info(f"📊 Planning LLM recommended evaluation config: {evaluation_config}")
+        else:
+            LOG.info("📊 No evaluation config from planning LLM, using defaults")
+
+        # Wire assembler with LLM configuration - extended timeouts for local models
+        assembler_llm_kwargs = {
+            "base_url": llm_base_url,
+            "model_name": llm_model,
+            "api_key": llm_api_key,
+            "max_retries": 2,
+            "retry_backoff": 2.0,  # Increased backoff for local models
+        }
+        def _assembler_callable(model_config, output_path, use_llm=True, llm_kwargs=None, sandbox_error=None):
+            return assemble_from_config(
+                model_config, output_path, use_llm=use_llm, llm_kwargs=assembler_llm_kwargs, sandbox_error=sandbox_error
+            )
         summarizer_callable = summarize_model_from_path
         sandbox_callable = run_sandboxed_harness
-        evaluator_callable = _build_evaluator_callable()
+        evaluator_callable = _build_evaluator_callable(evaluation_config)
 
         # Registry writer for persisting iteration data
         registry_writer = lambda entry: _append_registry(project_root, entry)
@@ -184,7 +307,7 @@ def run(
         # Instantiate orchestrator
         orchestrator = Orchestrator(
             planning_client=planning_client,
-            assembler=assembler_callable,
+            assembler=_assembler_callable,
             summarizer=summarizer_callable,
             evaluator=evaluator_callable,
             sandbox_runner=sandbox_callable,
@@ -194,22 +317,73 @@ def run(
         )
 
         LOG.info("Starting orchestrator loop (goal=%r)", goal)
-        report = orchestrator.run(goal=goal, workdir=project_root, keep_artifacts=keep)
+        
+        # Check if orchestrator supports memory manager
+        if hasattr(orchestrator, 'memory_manager'):
+            orchestrator.memory_manager = memory_manager
+        
+        report = orchestrator.run_with_proposal(goal=goal, workdir=project_root, keep_artifacts=keep, initial_proposal=proposal)
         LOG.info(
             "Orchestrator finished with final_status=%s", report.get("final_status")
         )
 
+        # Analyze and record research session insights if memory manager is available
+        if memory_manager.enabled:
+            try:
+                LOG.info("🧠 MEMORY SYSTEM: Analyzing research session for memory insights...")
+                recorded_insights = memory_manager.analyze_and_record_research_session(report)
+                if recorded_insights:
+                    # Enhanced insights with actual content for reporting
+                    enhanced_insights = {}
+                    for insight_type, memory_id in recorded_insights.items():
+                        # Store the memory ID and let the report generator fetch content
+                        enhanced_insights[insight_type] = memory_id
+                        LOG.info(f"🧠 MEMORY SYSTEM:   - {insight_type}: {memory_id[:12]}...")
+                    
+                    report["memory_insights"] = enhanced_insights
+                    
+                    # Add memory usage tracking data to the report
+                    if hasattr(orchestrator, '_memory_usage_by_phase'):
+                        report["memory_usage_by_phase"] = orchestrator._memory_usage_by_phase
+                        LOG.info(f"🧠 MEMORY SYSTEM: ✅ SUCCESSFULLY RECORDED {len(recorded_insights)} RESEARCH INSIGHTS TO MEMORY")
+                    else:
+                        LOG.info(f"🧠 MEMORY SYSTEM: ✅ SUCCESSFULLY RECORDED {len(recorded_insights)} RESEARCH INSIGHTS TO MEMORY")
+                else:
+                    LOG.info("🧠 MEMORY SYSTEM: No research insights recorded for this session")
+            except Exception as e:
+                LOG.warning(f"🧠 MEMORY SYSTEM: Failed to record research insights: {e}")
+
         # Persist a top-level run record
         run_record = {
-            "run_id": f"run-{datetime.utcnow().isoformat()}",
+            "run_id": run_id,
             "timestamp": datetime.utcnow().isoformat(),
             "goal": goal,
             "report": report,
+            "memory_enabled": memory_manager.enabled,
         }
         _append_registry(project_root, run_record)
-
+        
         results["report"] = report
         results["success"] = True
+        results["memory_enabled"] = memory_manager.enabled
+        
+        # 📊 AUTOMATIC RESEARCH REPORT GENERATION
+        LOG.info("📊 Generating comprehensive research report...")
+        try:
+            memory_insights = report.get("memory_insights", {})
+            report_path = generate_research_report(project_root, memory_insights)
+            results["report_path"] = report_path
+            LOG.info(f"✅ Research report generated: {report_path}")
+            LOG.info("📄 The report includes:")
+            LOG.info("   - Executive summary and research methodology")
+            LOG.info("   - Detailed iteration analysis with technical insights")
+            LOG.info("   - Memory system integration reporting")
+            LOG.info("   - Performance metrics and failure analysis")
+            LOG.info("   - Professional recommendations and appendices")
+        except Exception as e:
+            LOG.warning(f"⚠️ Failed to generate research report: {e}")
+            results["report_generation_error"] = str(e)
+        
         return results
 
     except (
@@ -294,6 +468,12 @@ def main() -> None:
     print(f"project_root: {result.get('project_root')}")
     print("Status: SUCCESS")
     print("report:", result.get("report"))
+    
+    # Display research report information if generated
+    report_path = result.get('report_path')
+    if report_path:
+        print(f"📊 Research Report: {report_path}")
+        print("   The report includes detailed analysis of all iterations, memory insights, and recommendations.")
 
 
 if __name__ == "__main__":

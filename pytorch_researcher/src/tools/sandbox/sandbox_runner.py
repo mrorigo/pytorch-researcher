@@ -103,7 +103,7 @@ def main():
             import torch
             import torch.nn as nn
         except Exception as e:
-            _emit({"ok": False, "error": f\"PyTorch import failed: {e}\"})
+            _emit({"ok": False, "error": f"PyTorch import failed: {e}"})
             sys.exit(5)
 
         # Import module from path
@@ -116,7 +116,7 @@ def main():
         try:
             spec.loader.exec_module(module)
         except Exception as e:
-            _emit({"ok": False, "error": f\"Failed to execute module: {e}\\n{traceback.format_exc()}\"})
+            _emit({"ok": False, "error": f"Failed to execute module: {e}\n{traceback.format_exc()}"})
             sys.exit(7)
 
         # Locate class
@@ -148,7 +148,7 @@ def main():
         try:
             inst = cls()
         except Exception as e:
-            _emit({"ok": False, "error": f\"Failed to instantiate {cls.__name__}: {e}\\n{traceback.format_exc()}\"})
+            _emit({"ok": False, "error": f"Failed to instantiate {cls.__name__}: {e}\n{traceback.format_exc()}"})
             sys.exit(9)
 
         # Move to cpu
@@ -193,7 +193,7 @@ def main():
                 else:
                     output_shape = (type(out).__name__,)
             except Exception as e:
-                _emit({"ok": False, "error": f\"Forward pass failed: {e}\\n{traceback.format_exc()}\"})
+                _emit({"ok": False, "error": f"Forward pass failed: {e}\n{traceback.format_exc()}"})
                 sys.exit(10)
 
         # Success: emit structured summary
@@ -209,7 +209,7 @@ def main():
     except SystemExit:
         raise
     except Exception as e:
-        _emit({"ok": False, "error": f\"Unhandled exception in harness: {e}\\n{traceback.format_exc()}\"})
+        _emit({"ok": False, "error": f"Unhandled exception in harness: {e}\n{traceback.format_exc()}"})
         sys.exit(99)
 
 if __name__ == '__main__':

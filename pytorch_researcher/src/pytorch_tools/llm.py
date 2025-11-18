@@ -29,6 +29,12 @@ import logging
 import time
 from typing import Any, Dict, Optional
 
+try:
+    from litellm import completion
+    from litellm.exceptions import APIError
+except ImportError as e:
+    raise ImportError(f"Required dependency 'litellm' not found: {e}") from e
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,20 +78,20 @@ class DisabledLLMClient(BaseLLMClient):
 
 class HTTPLLMClient(BaseLLMClient):
     """
-    Simple HTTP-only LLM client.
+    LLM client using LiteLLM for unified provider interface.
 
-    This client performs POST requests to "{base_url}/chat/completions" and
-    expects a JSON response. It intentionally uses the standard library so the
-    project doesn't require external HTTP dependencies for the MVP.
+    This client uses LiteLLM to provide a unified interface for different LLM providers
+    while maintaining compatibility with the existing API. It supports HTTP-only providers
+    like Ollama, OpenAI, Anthropic, and any other provider supported by LiteLLM.
 
     Parameters
     ----------
     base_url: str
         Base URL of the LLM HTTP API (e.g., "http://localhost:11434/v1").
     model_name: str
-        Model name to request (e.g., "gpt-oss:20b").
+        Model name to request (e.g., "gpt-oss:20b", "openai/gpt-4").
     api_key: Optional[str]
-        Optional API key to include in the Authorization header as Bearer.
+        Optional API key for the LLM provider.
     max_retries: int
         Number of retries on transient failures (default: 2).
     retry_backoff: float
@@ -112,18 +118,13 @@ class HTTPLLMClient(BaseLLMClient):
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
     ) -> Dict[str, Any]:
         """
-        Perform an HTTP POST to the LLM endpoint and return {"raw": parsed_json}.
+        Perform an LLM call using LiteLLM and return {"raw": parsed_response}.
 
-        Retries on transient errors using exponential backoff. Raises
-        LLMClientError on fatal errors.
+        This method uses LiteLLM to provide a unified interface for different LLM providers
+        while maintaining the existing API contract. Retries on transient errors using
+        exponential backoff. Raises LLMClientError on fatal errors.
         """
-        try:
-            import urllib.error as _urlerr  # type: ignore
-            import urllib.request as _urlreq  # type: ignore
-        except Exception as e:
-            raise LLMClientError(f"Missing HTTP support libraries: {e}") from e
-
-        endpoint = self.base_url + "/chat/completions"
+        # Prepare messages in the format expected by LiteLLM
         messages = [
             {
                 "role": "system",
@@ -131,49 +132,114 @@ class HTTPLLMClient(BaseLLMClient):
             },
             {"role": "user", "content": prompt},
         ]
-        payload = {
-            "model": self.model_name,
+        
+        # Prepare LiteLLM completion call parameters
+        model_name = self.model_name
+        completion_kwargs = {
+            "model": model_name,
             "messages": messages,
             "temperature": float(temperature),
         }
-        data = json.dumps(payload).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        
+        # Configure API base URL and API key for LiteLLM based on endpoint
+        if self.base_url:
+            # Use 'api_base' instead of 'base_url' for LiteLLM compatibility
+            completion_kwargs["api_base"] = self.base_url
+            
+            # Enhanced logging for debugging
+            logger.info(f"🚀 HTTPLLM CALL START - Model: {model_name}")
+            logger.info(f"📝 Base URL: {self.base_url}")
+            logger.info(f"🔑 Using API Key: {'Yes' if self.api_key else 'No'}")
+            
+            # Special handling for different providers
+            if "openrouter.ai" in self.base_url.lower():
+                # OpenRouter-specific configuration - add prefix if not present
+                if not model_name.startswith("openrouter/"):
+                    model_name = f"openrouter/{model_name}"
+                    completion_kwargs["model"] = model_name
+                    logger.info(f"Added OpenRouter prefix to model: {model_name}")
+                completion_kwargs["custom_llm_provider"] = "openai"
+                logger.info(f"Using OpenRouter with provider: openai")
+                if self.api_key:
+                    completion_kwargs["api_key"] = self.api_key
+            elif "localhost" in self.base_url or "127.0.0.1" in self.base_url:
+                # For local endpoints like Ollama - add openai/ prefix for compatibility
+                if "openai/" not in model_name:
+                    model_name = f"openai/{model_name}"
+                    completion_kwargs["model"] = model_name
+                    logger.info(f"Added openai prefix to local model: {model_name}")
+                completion_kwargs["custom_llm_provider"] = "openai"
+                if self.api_key:
+                    completion_kwargs["api_key"] = self.api_key
+                else:
+                    completion_kwargs["api_key"] = "local"
+                logger.info(f"Using local endpoint with provider: openai")
+            else:
+                # For other endpoints (OpenAI, etc.) - respect exact model name
+                completion_kwargs["custom_llm_provider"] = "openai"
+                logger.info(f"Using custom endpoint with provider: openai")
+                if self.api_key:
+                    completion_kwargs["api_key"] = self.api_key
+            
+        # Handle timeout - LiteLLM uses timeout parameter directly
+        if timeout:
+            completion_kwargs["timeout"] = timeout
+            
+        # Handle retries - LiteLLM supports num_retries parameter
+        if self.max_retries:
+            completion_kwargs["num_retries"] = self.max_retries
 
         last_exc: Optional[Exception] = None
         for attempt in range(1 + self.max_retries):
             try:
-                req = _urlreq.Request(
-                    endpoint, data=data, headers=headers, method="POST"
-                )
-                with _urlreq.urlopen(req, timeout=timeout) as resp:
-                    body = resp.read().decode("utf-8")
-                    parsed = json.loads(body)
-                    return {"raw": parsed}
-            except _urlerr.HTTPError as he:  # type: ignore
-                # Try to include body for diagnostics
-                try:
-                    err_body = he.read().decode("utf-8")
-                except Exception:
-                    err_body = "<no body>"
-                raise LLMClientError(
-                    f"HTTP error from LLM endpoint: {getattr(he, 'code', '')} {getattr(he, 'reason', '')} - {err_body}"
-                ) from he
+                # Use LiteLLM completion function
+                logger.debug(f"Calling LiteLLM with model: {model_name}, timeout: {timeout}")
+                response = completion(**completion_kwargs)
+                
+                # Log the raw response for debugging
+                logger.debug(f"Raw LiteLLM response: {response}")
+                
+                # Extract the response content following the existing pattern
+                if hasattr(response, 'choices') and response.choices:
+                    choice = response.choices[0]
+                    if hasattr(choice, 'message') and choice.message:
+                        content = choice.message.content
+                    else:
+                        content = str(choice)
+                else:
+                    # Fallback for other response formats
+                    content = str(response)
+                
+                logger.debug(f"Extracted content (length {len(content) if content else 0}): {content[:500]!r}...")
+                
+                # Return in the format expected by the existing code
+                parsed_response = {"content": content}
+                if hasattr(response, 'choices'):
+                    parsed_response["choices"] = [
+                        {"message": {"content": content}}
+                    ]
+                
+                return {"raw": parsed_response}
+                
+            except APIError as exc:
+                # LiteLLM-specific errors
+                raise LLMClientError(f"LiteLLM API error: {exc}") from exc
             except Exception as exc:
                 last_exc = exc
-                wait = self.retry_backoff * (2**attempt)
-                logger.debug(
-                    "HTTP LLM call failed (attempt %d/%d): %s; retrying in %.1fs",
-                    attempt + 1,
-                    self.max_retries + 1,
-                    exc,
-                    wait,
-                )
-                time.sleep(wait)
-                continue
+                if attempt < self.max_retries:
+                    wait = self.retry_backoff * (2**attempt)
+                    logger.debug(
+                        "LLM call failed (attempt %d/%d): %s; retrying in %.1fs",
+                        attempt + 1,
+                        self.max_retries + 1,
+                        exc,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                break
 
-        raise LLMClientError(f"LLM HTTP request failed after retries: {last_exc}")
+        raise LLMClientError(f"LLM request failed after {self.max_retries + 1} attempts: {last_exc}")
 
 
 __all__ = [
