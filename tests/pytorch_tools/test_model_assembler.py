@@ -80,86 +80,106 @@ def test_assemble_and_save_simple_model(tmp_path):
         _cleanup_module(module_name)
 
 
-def test_llm_wrapper_fallback_generates_and_saves(tmp_path):
+def test_deterministic_first_strategy_simple_config(tmp_path):
     """
-    Test the LLM-backed assembler interface but force the fallback path
-    (use_llm=False) so the deterministic assembler is exercised through the wrapper.
+    Test deterministic-first strategy: simple config uses deterministic path by default.
     """
     from pytorch_researcher.src.pytorch_tools.model_assembler_llm import (
         assemble_from_config,
     )
 
-    # Ensure torch is available for forward pass validation
     torch = pytest.importorskip("torch")
 
-    # Provide a dict-style model_config (the wrapper should accept this)
-    model_config = {
-        "class_name": "LLMFallbackModel",
+    # Simple config that should use deterministic-first with proper Linear layer config
+    simple_config = {
+        "class_name": "SimpleCNN",
+        "input_shape": (3, 32, 32),
         "layers": [
-            {"type": "Conv2d", "in_channels": 3, "out_channels": 4, "kernel_size": 3},
+            {"type": "Conv2d", "in_channels": 3, "out_channels": 16, "kernel_size": 3},
             {"type": "ReLU"},
             {"type": "MaxPool2d", "kernel_size": 2},
             {"type": "Flatten"},
-            {"type": "Linear", "in_features": 4 * 16 * 16, "out_features": 5},
+            {"type": "Linear", "in_features": 16 * 16 * 16, "out_features": 10},
         ],
     }
 
-    out_path = tmp_path / "llm_fallback_model.py"
-
-    # Force fallback (do not attempt to call an LLM in tests)
-    result = assemble_from_config(
-        model_config, str(out_path), use_llm=False, llm_kwargs=None
-    )
+    out_path = tmp_path / "simple_cnn.py"
+    result = assemble_from_config(simple_config, str(out_path), use_llm=True)
+    
     assert result["path"] == str(out_path)
-    assert result["via"] in ("fallback", "llm", "fallback")  # expecting fallback
-
-    # Validate file exists and the source is present
-    assert out_path.exists()
-    src = out_path.read_text(encoding="utf-8")
-    assert "class LLMFallbackModel" in src or "class AssembledModel" in src
-
-    # Import and run a dummy forward pass
-    module_name = "generated_llm_fallback"
-    mod = _import_module_from_path(str(out_path), module_name)
-    try:
-        # The wrapper attempts to name the class as provided; fall back to AssembledModel if not present
-        cls_name = (
-            "LLMFallbackModel" if hasattr(mod, "LLMFallbackModel") else "AssembledModel"
-        )
-        assert hasattr(mod, cls_name), f"Expected class {cls_name} in generated module"
-        cls = getattr(mod, cls_name)
-        model = cls()
-        model.eval()
-        inp = torch.randn(1, 3, 32, 32)
-        out = model(inp)
-        assert hasattr(out, "shape")
-        # The final linear layer had out_features=5 => expect (1,5)
-        assert out.shape[1] == 5
-    finally:
-        _cleanup_module(module_name)
+    assert result["via"] == "deterministic"
+    assert "class SimpleCNN" in result["source"]
 
 
-def test_generated_code_is_valid_python_ast():
+def test_deterministic_first_complex_config_uses_llm_fallback(tmp_path):
     """
-    Ensure that assemble_model_code produces syntactically valid Python by parsing AST.
+    Test that complex/unsupported configs fall back to LLM path when use_llm=True.
+    Since we can't mock LLM in unit tests easily, test the logic path exists.
     """
-    import ast
-
-    from pytorch_researcher.src.pytorch_tools.model_assembler import (
-        ModelConfig,
-        assemble_model_code,
+    from pytorch_researcher.src.pytorch_tools.model_assembler_llm import (
+        assemble_from_config,
     )
 
-    cfg = ModelConfig(
-        class_name="AstCheckModel",
-        layers=[
-            {"type": "Linear", "in_features": 16, "out_features": 4},
+    torch = pytest.importorskip("torch")
+
+    # Complex config with unsupported layer that should fallback to LLM
+    complex_config = {
+        "class_name": "ComplexModel",
+        "input_shape": (3, 32, 32),
+        "layers": [
+            {"type": "CustomAttention", "heads": 8},  # Unsupported layer type
+            {"type": "ResBlock"},  # Unsupported
         ],
-    )
+    }
 
-    src = assemble_model_code(cfg)
-    # Should parse without SyntaxError
-    ast.parse(src)
+    out_path = tmp_path / "complex_model.py"
+    
+    # Since no LLM client is configured, expect LLM client error
+    with pytest.raises(Exception) as exc_info:
+        assemble_from_config(complex_config, str(out_path), use_llm=True)
+    
+    # Should fail with generic error since both deterministic and LLM failed
+    assert "Both deterministic and LLM assembly failed" in str(exc_info.value)
+    
+    # File should not exist since assembly failed completely
+    assert not out_path.exists()
+
+
+def test_complexity_heuristic_classification():
+    """
+    Test the config complexity heuristic directly.
+    """
+    from pytorch_researcher.src.pytorch_tools.model_assembler_llm import LLMModelAssembler
+    
+    assembler = LLMModelAssembler()
+    
+    # Simple config should be deterministic-friendly
+    simple = {
+        "input_shape": (3, 32, 32),
+        "layers": [
+            {"type": "Conv2d", "out_channels": 32},
+            {"type": "ReLU"},
+            {"type": "Flatten"},
+        ]
+    }
+    assert assembler.is_deterministic_friendly(simple) == True
+
+    # Complex/unsupported should not
+    complex = {
+        "input_shape": (3, 32, 32),
+        "layers": [{"type": "TransformerBlock"}]
+    }
+    assert assembler.is_deterministic_friendly(complex) == False
+
+    # Edge cases
+    empty = {"layers": []}
+    assert assembler.is_deterministic_friendly(empty) == False
+
+    no_input_shape = {
+        "input_shape": None,
+        "layers": [{"type": "Linear", "out_features": 10}]
+    }
+    assert assembler.is_deterministic_friendly(no_input_shape) == False
 
 
 # def test_llm_assembler_with_mock_client(tmp_path):

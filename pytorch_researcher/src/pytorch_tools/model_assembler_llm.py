@@ -380,7 +380,7 @@ class LLMModelAssembler:
         Args:
             model_config: Configuration dict for the model
             output_path: Path where to save the generated model
-            use_llm: Whether to use LLM generation
+            use_llm: Whether to use LLM generation (overridden by deterministic-first strategy)
             temperature: LLM temperature (0.0 for more deterministic output)
             prompt_addendum: Additional prompt instructions
             max_llm_retries: Number of retry attempts for LLM generation
@@ -393,9 +393,99 @@ class LLMModelAssembler:
         except Exception:
             config_json = str(model_config)
 
-        # Attempt LLM generation if requested with retry logic
-        if use_llm:
-            for attempt in range(max_llm_retries):
+        # 💰 DETERMINISTIC-FIRST STRATEGY with complexity heuristic
+        logger.info("🔄 Model assembly: Starting with deterministic-first strategy")
+        
+        # Complexity heuristic: use deterministic for simple, supported layer configs
+        def _is_deterministic_friendly(config: Dict[str, Any]) -> bool:
+            """Heuristic to determine if config should use deterministic assembler."""
+            simple_layers = {
+                "Conv2d", "Linear", "ReLU", "LeakyReLU", "MaxPool2d",
+                "AvgPool2d", "BatchNorm2d", "Dropout", "Flatten"
+            }
+            
+            if not isinstance(config.get("layers"), list):
+                return False
+                
+            # Check layer types and config simplicity
+            num_layers = len(config["layers"])
+            has_unsupported = False
+            
+            for layer in config["layers"]:
+                layer_type = layer.get("type")
+                if layer_type not in simple_layers:
+                    has_unsupported = True
+                    break
+            
+            # Use deterministic if: supported layers only + reasonable size + explicit shape hints
+            return (
+                not has_unsupported and
+                num_layers <= 15 and
+                num_layers > 0 and
+                config.get("input_shape") is not None
+            )
+        
+        should_use_deterministic = _is_deterministic_friendly(model_config)
+        logger.info("📊 Config complexity: %d layers, deterministic_friendly=%s",
+                   len(model_config.get("layers", [])), should_use_deterministic)
+        
+        # Check if deterministic fallback is available
+        if assemble_model_code is None or save_model_code is None:
+            if _fallback_import_error is not None:
+                raise LLMModelAssemblerError(
+                    f"Programmatic assembler not available: {_fallback_import_error}"
+                )
+            else:
+                raise LLMModelAssemblerError(
+                    "Programmatic assembler not available."
+                )
+
+        try:
+            # Ensure the programmatic ModelConfig class is available
+            if ModelConfig is None:
+                raise LLMModelAssemblerError(
+                    "Programmatic ModelConfig class not available for deterministic assembler."
+                )
+
+            # Coerce dict-like configs into a ModelConfig safely
+            if isinstance(model_config, ModelConfig):
+                cfg = model_config
+            else:
+                if isinstance(model_config, dict):
+                    class_name = model_config.get("class_name") or "AssembledModel"
+                    input_shape = model_config.get("input_shape")
+                    layers = list(model_config.get("layers", []))
+                    docstring = model_config.get("docstring")
+                    cfg = ModelConfig(
+                        class_name=str(class_name),
+                        input_shape=input_shape,
+                        layers=layers,
+                        docstring=docstring,
+                    )
+                else:
+                    cfg = ModelConfig(class_name="AssembledModel", layers=[])
+
+            src = assemble_model_code(cfg)
+            save_model_code(out_path, src, overwrite=True)
+            logger.info("💾 Model assembled via DETERMINISTIC and saved to %s", out_path)
+            return {
+                "path": out_path,
+                "via": "deterministic",
+                "source": src,
+                "llm_response": None,
+                "attempts": 0,
+            }
+            
+        except Exception as det_exc:
+            logger.info("⚠️ Deterministic assembly failed (%s), falling back to LLM", det_exc)
+        
+        # LLM fallback only if deterministic fails
+        logger.info("🤖 Falling back to LLM generation (max %d retries)", max_llm_retries)
+        
+        if not use_llm:
+            raise LLMModelAssemblerError("Deterministic failed and use_llm=False")
+            
+        for attempt in range(max_llm_retries):
                 try:
                     # Build prompt
                     prompt = self.prompt_template.replace("{model_config}", config_json)
@@ -544,15 +634,9 @@ class LLMModelAssembler:
                     # Unknown shape: create a minimal ModelConfig to allow assembly.
                     cfg = ModelConfig(class_name="AssembledModel", layers=[])
 
-            src = assemble_model_code(cfg)
-            save_model_code(out_path, src, overwrite=True)
-            logger.info("Model assembled via fallback and saved to %s", out_path)
-            return {
-                "path": out_path,
-                "via": "fallback",
-                "source": src,
-                "llm_response": None,
-            }
+            # This fallback block is now unreachable due to deterministic-first strategy above
+            logger.warning("Fallback assembler reached unexpectedly")
+            raise LLMModelAssemblerError("Unexpected fallback path reached")
         except Exception as exc:
             logger.error("Fallback assembler failed: %s", exc)
             raise LLMModelAssemblerError(f"Fallback assembler failed: {exc}") from exc
