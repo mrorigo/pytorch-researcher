@@ -33,28 +33,22 @@ from typing import Any, Dict, Optional
 from pytorch_researcher.src.pytorch_tools.llm import (
     BaseLLMClient,
     DisabledLLMClient,
-    HTTPLLMClient,
+    LiteLLMClient,
     LLMClientError,
 )
 
 logger = logging.getLogger(__name__)
 
-# Try to import the programmatic assembler as a fallback (best-effort).
-try:
-    from pytorch_researcher.src.pytorch_tools.model_assembler import (
-        ModelAssemblerError,
-        ModelConfig,
-        assemble_model_code,
-        save_model_code,
-    )
-except Exception as exc:  # pragma: no cover - defensive import
-    assemble_model_code = None  # type: ignore
-    save_model_code = None  # type: ignore
-    ModelConfig = None  # type: ignore
-    ModelAssemblerError = Exception  # type: ignore
-    _fallback_import_error = exc
-else:
-    _fallback_import_error = None
+# Import the programmatic assembler (always available in this package)
+from pytorch_researcher.src.pytorch_tools.model_assembler import (
+    ModelConfig,
+    assemble_model_code,
+    save_model_code,
+    ModelAssemblerError as _ModelAssemblerError,
+)
+
+# Re-export for compatibility
+ModelAssemblerError = _ModelAssemblerError
 
 # Simple regex to extract python fenced blocks
 _CODE_FENCE_RE = re.compile(
@@ -111,7 +105,7 @@ class LLMModelAssembler:
             self.llm_client = llm_client
         elif self.base_url:
             try:
-                self.llm_client = HTTPLLMClient(
+                self.llm_client = LiteLLMClient(
                     base_url=self.base_url,
                     model_name=self.model_name,
                     api_key=self.api_key,
@@ -120,7 +114,7 @@ class LLMModelAssembler:
                 )
             except Exception as exc:
                 logger.warning(
-                    "Failed to construct HTTPLLMClient: %s. LLM usage will be disabled.",
+                    "Failed to construct LiteLLMClient: %s. LLM usage will be disabled.",
                     exc,
                 )
                 self.llm_client = None
@@ -363,6 +357,34 @@ class LLMModelAssembler:
                 "Generated source does not contain a class definition."
             )
 
+    def is_deterministic_friendly(self, config: Dict[str, Any]) -> bool:
+        """Heuristic to determine if config should use deterministic assembler."""
+        simple_layers = {
+            "Conv2d", "Linear", "ReLU", "LeakyReLU", "MaxPool2d",
+            "AvgPool2d", "BatchNorm2d", "Dropout", "Flatten"
+        }
+        
+        if not isinstance(config.get("layers"), list):
+            return False
+            
+        # Check layer types and config simplicity
+        num_layers = len(config["layers"])
+        has_unsupported = False
+        
+        for layer in config["layers"]:
+            layer_type = layer.get("type")
+            if layer_type not in simple_layers:
+                has_unsupported = True
+                break
+        
+        # Use deterministic if: supported layers only + reasonable size + explicit shape hints
+        return (
+            not has_unsupported and
+            num_layers <= 15 and
+            num_layers > 0 and
+            config.get("input_shape") is not None
+        )
+
     def assemble_from_config(
         self,
         model_config: Dict[str, Any],
@@ -397,249 +419,168 @@ class LLMModelAssembler:
         logger.info("🔄 Model assembly: Starting with deterministic-first strategy")
         
         # Complexity heuristic: use deterministic for simple, supported layer configs
-        def _is_deterministic_friendly(config: Dict[str, Any]) -> bool:
-            """Heuristic to determine if config should use deterministic assembler."""
-            simple_layers = {
-                "Conv2d", "Linear", "ReLU", "LeakyReLU", "MaxPool2d",
-                "AvgPool2d", "BatchNorm2d", "Dropout", "Flatten"
-            }
-            
-            if not isinstance(config.get("layers"), list):
-                return False
-                
-            # Check layer types and config simplicity
-            num_layers = len(config["layers"])
-            has_unsupported = False
-            
-            for layer in config["layers"]:
-                layer_type = layer.get("type")
-                if layer_type not in simple_layers:
-                    has_unsupported = True
-                    break
-            
-            # Use deterministic if: supported layers only + reasonable size + explicit shape hints
-            return (
-                not has_unsupported and
-                num_layers <= 15 and
-                num_layers > 0 and
-                config.get("input_shape") is not None
-            )
         
-        should_use_deterministic = _is_deterministic_friendly(model_config)
+        should_use_deterministic = self.is_deterministic_friendly(model_config)
         logger.info("📊 Config complexity: %d layers, deterministic_friendly=%s",
                    len(model_config.get("layers", [])), should_use_deterministic)
         
-        # Check if deterministic fallback is available
-        if assemble_model_code is None or save_model_code is None:
-            if _fallback_import_error is not None:
-                raise LLMModelAssemblerError(
-                    f"Programmatic assembler not available: {_fallback_import_error}"
-                )
-            else:
-                raise LLMModelAssemblerError(
-                    "Programmatic assembler not available."
-                )
-
-        try:
-            # Ensure the programmatic ModelConfig class is available
-            if ModelConfig is None:
-                raise LLMModelAssemblerError(
-                    "Programmatic ModelConfig class not available for deterministic assembler."
-                )
-
-            # Coerce dict-like configs into a ModelConfig safely
-            if isinstance(model_config, ModelConfig):
-                cfg = model_config
-            else:
-                if isinstance(model_config, dict):
-                    class_name = model_config.get("class_name") or "AssembledModel"
-                    input_shape = model_config.get("input_shape")
-                    layers = list(model_config.get("layers", []))
-                    docstring = model_config.get("docstring")
-                    cfg = ModelConfig(
-                        class_name=str(class_name),
-                        input_shape=input_shape,
-                        layers=layers,
-                        docstring=docstring,
-                    )
+        if should_use_deterministic:
+            # Use deterministic path for simple configs
+            try:
+                # Coerce dict-like configs into a ModelConfig safely
+                if isinstance(model_config, ModelConfig):
+                    cfg = model_config
                 else:
-                    cfg = ModelConfig(class_name="AssembledModel", layers=[])
+                    if isinstance(model_config, dict):
+                        class_name = model_config.get("class_name") or "AssembledModel"
+                        input_shape = model_config.get("input_shape")
+                        layers = list(model_config.get("layers", []))
+                        docstring = model_config.get("docstring")
+                        cfg = ModelConfig(
+                            class_name=str(class_name),
+                            input_shape=input_shape,
+                            layers=layers,
+                            docstring=docstring,
+                        )
+                    else:
+                        cfg = ModelConfig(class_name="AssembledModel", layers=[])
 
-            src = assemble_model_code(cfg)
-            save_model_code(out_path, src, overwrite=True)
-            logger.info("💾 Model assembled via DETERMINISTIC and saved to %s", out_path)
-            return {
-                "path": out_path,
-                "via": "deterministic",
-                "source": src,
-                "llm_response": None,
-                "attempts": 0,
-            }
-            
-        except Exception as det_exc:
-            logger.info("⚠️ Deterministic assembly failed (%s), falling back to LLM", det_exc)
+                src = assemble_model_code(cfg)
+                save_model_code(out_path, src, overwrite=True)
+                logger.info("💾 Model assembled via DETERMINISTIC and saved to %s", out_path)
+                return {
+                    "path": out_path,
+                    "via": "deterministic",
+                    "source": src,
+                    "llm_response": None,
+                    "attempts": 0,
+                }
+                
+            except Exception as det_exc:
+                logger.info("⚠️ Deterministic assembly failed (%s), falling back to LLM", det_exc)
         
-        # LLM fallback only if deterministic fails
+        # If deterministic fails or config is not deterministic-friendly, use LLM
         logger.info("🤖 Falling back to LLM generation (max %d retries)", max_llm_retries)
         
         if not use_llm:
             raise LLMModelAssemblerError("Deterministic failed and use_llm=False")
             
         for attempt in range(max_llm_retries):
+            try:
+                # Build prompt
+                prompt = self.prompt_template.replace("{model_config}", config_json)
+                
+                # Add error feedback on retry attempts
+                if attempt > 0:
+                    if sandbox_error:
+                        # Add intelligent sandbox error feedback
+                        prompt += f"\n\nCRITICAL: Previous generation failed during sandbox execution with this error:\n{sandbox_error}\n\nPlease fix the runtime issues in your code. Ensure tensor shapes match, input dimensions are correct, and PyTorch operations are valid."
+                    else:
+                        prompt += f"\n\nIMPORTANT: Previous attempt failed. Please be more careful about JSON formatting and syntax validity."
+                
+                if prompt_addendum:
+                    prompt = prompt + "\n\n" + prompt_addendum
+
+                logger.info(f"🤖 LLM ASSEMBLER ATTEMPT {attempt + 1}/{max_llm_retries}")
+                logger.info(f"📋 Model config length: {len(config_json)} chars")
+                logger.info(f"📝 Prompt length: {len(prompt)} chars")
+                
+                # Call LLM with comprehensive logging
+                start_time = time.time()
+                raw = self._call_llm(prompt, temperature=temperature, timeout=300)
+                llm_duration = time.time() - start_time
+                
+                logger.info(f"⏱️ LLM call duration: {llm_duration:.2f}s")
+                logger.info(f"📦 Raw LLM response type: {type(raw).__name__}")
+                
+                # Extract code with detailed logging
+                logger.info(f"🔍 Extracting code from LLM response...")
+                code = self._extract_code_from_response(raw)
+                
+                logger.info(f"✅ Code extracted successfully")
+                logger.info(f"📏 Extracted code length: {len(code)} chars")
+                logger.info(f"🔍 Code preview: {code[:200]!r}{'...' if len(code) > 200 else ''}")
+                
+                # Validate the generated code with detailed error reporting
+                logger.info(f"🔎 Validating extracted code...")
                 try:
-                    # Build prompt
-                    prompt = self.prompt_template.replace("{model_config}", config_json)
+                    self._validate_source(code)
+                    logger.info(f"✅ Code validation PASSED")
+                except LLMModelAssemblerError as val_exc:
+                    # LOG FAILED GENERATION FOR ANALYSIS
+                    logger.error(f"🚫 LLM GENERATION {attempt + 1} FAILED - Logging for analysis:")
+                    logger.error(f"📋 Validation error: {val_exc}")
+                    logger.error(f"📦 Raw LLM response: {raw}")
+                    logger.error(f"🔍 Extracted code that failed validation:")
+                    logger.error(f"📏 Code length: {len(code)} chars")
+                    logger.error(f"📝 Failed code content:\n{code}")
+                    logger.error(f"📄 Failed code lines:")
+                    for i, line in enumerate(code.split('\n')[:30]):
+                        logger.error(f"  {i+1:2d}: {line}")
                     
-                    # Add error feedback on retry attempts
-                    if attempt > 0:
-                        if sandbox_error:
-                            # Add intelligent sandbox error feedback
-                            prompt += f"\n\nCRITICAL: Previous generation failed during sandbox execution with this error:\n{sandbox_error}\n\nPlease fix the runtime issues in your code. Ensure tensor shapes match, input dimensions are correct, and PyTorch operations are valid."
-                        else:
-                            prompt += f"\n\nIMPORTANT: Previous attempt failed. Please be more careful about JSON formatting and syntax validity."
+                    if "class definition" in str(val_exc):
+                        # Check what classes exist in the generated code
+                        try:
+                            import ast
+                            tree = ast.parse(code)
+                            class_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+                            logger.error(f"🔍 Classes found in failed code: {class_names}")
+                        except Exception as parse_exc:
+                            logger.error(f"❌ Could not parse failed code for class analysis: {parse_exc}")
                     
-                    if prompt_addendum:
-                        prompt = prompt + "\n\n" + prompt_addendum
-
-                    logger.info(f"🤖 LLM ASSEMBLER ATTEMPT {attempt + 1}/{max_llm_retries}")
-                    logger.info(f"📋 Model config length: {len(config_json)} chars")
-                    logger.info(f"📝 Prompt length: {len(prompt)} chars")
-                    
-                    # Call LLM with comprehensive logging
-                    start_time = time.time()
-                    raw = self._call_llm(prompt, temperature=temperature, timeout=300)
-                    llm_duration = time.time() - start_time
-                    
-                    logger.info(f"⏱️ LLM call duration: {llm_duration:.2f}s")
-                    logger.info(f"📦 Raw LLM response type: {type(raw).__name__}")
-                    
-                    # Extract code with detailed logging
-                    logger.info(f"🔍 Extracting code from LLM response...")
-                    code = self._extract_code_from_response(raw)
-                    
-                    logger.info(f"✅ Code extracted successfully")
-                    logger.info(f"📏 Extracted code length: {len(code)} chars")
-                    logger.info(f"🔍 Code preview: {code[:200]!r}{'...' if len(code) > 200 else ''}")
-                    
-                    # Validate the generated code with detailed error reporting
-                    logger.info(f"🔎 Validating extracted code...")
-                    try:
-                        self._validate_source(code)
-                        logger.info(f"✅ Code validation PASSED")
-                    except LLMModelAssemblerError as val_exc:
-                        # LOG FAILED GENERATION FOR ANALYSIS
-                        logger.error(f"🚫 LLM GENERATION {attempt + 1} FAILED - Logging for analysis:")
-                        logger.error(f"📋 Validation error: {val_exc}")
-                        logger.error(f"📦 Raw LLM response: {raw}")
-                        logger.error(f"🔍 Extracted code that failed validation:")
-                        logger.error(f"📏 Code length: {len(code)} chars")
-                        logger.error(f"📝 Failed code content:\n{code}")
-                        logger.error(f"📄 Failed code lines:")
-                        for i, line in enumerate(code.split('\n')[:30]):
-                            logger.error(f"  {i+1:2d}: {line}")
-                        
-                        if "class definition" in str(val_exc):
-                            # Check what classes exist in the generated code
-                            try:
-                                import ast
-                                tree = ast.parse(code)
-                                class_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-                                logger.error(f"🔍 Classes found in failed code: {class_names}")
-                            except Exception as parse_exc:
-                                logger.error(f"❌ Could not parse failed code for class analysis: {parse_exc}")
-                        
-                        logger.info(f"🔄 Retry {attempt + 2}/{max_llm_retries} with improved prompt...")
-                        raise val_exc  # Re-raise to trigger retry logic
-                    
-                    # Save the validated code
-                    if save_model_code is not None:
-                        save_model_code(out_path, code, overwrite=True)
-                    else:
-                        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-                        Path(out_path).write_text(code, encoding="utf-8")
-                    
-                    logger.info(f"💾 Model assembled via LLM and saved to {out_path} (attempt {attempt + 1})")
-                    logger.info(f"🎉 LLM ASSEMBLER SUCCESS!")
-                    
-                    return {
-                        "path": out_path,
-                        "via": "llm",
-                        "source": code,
-                        "llm_response": raw,
-                        "attempts": attempt + 1,
-                        "sandbox_error": sandbox_error,  # Include original error for tracking
-                    }
-                    
-                except Exception as exc:
-                    # Enhanced logging to help debug LLM failures
-                    logger.error(f"❌ LLM attempt {attempt + 1}/{max_llm_retries} failed: {exc}")
-                    
-                    if attempt < max_llm_retries - 1:
-                        # Add error feedback to prompt for next attempt
-                        if hasattr(exc, 'args') and exc.args:
-                            error_msg = str(exc.args[0])
-                            logger.info(f"📝 Adding error feedback for retry: {error_msg}")
-                            # The error feedback will be included in next attempt's prompt
-                    
-                    if attempt == max_llm_retries - 1:
-                        # Last attempt failed, log comprehensive details for analysis
-                        logger.error(f"🚫 LLM ASSEMBLER FAILED after {max_llm_retries} attempts")
-                        
-                        # Log all details for prompt improvement analysis
-                        if 'raw' in locals():
-                            logger.error(f"📦 Final attempt LLM raw response: {raw}")
-                            logger.error(f"📄 Final attempt extracted code: {code if 'code' in locals() else 'N/A'}")
-                        
-                        logger.info("🔄 Falling back to deterministic assembler.")
-                    else:
-                        logger.info(f"🔄 Retrying LLM generation (attempt {attempt + 2})")
-
-        # Fallback deterministic assembler
-        if assemble_model_code is None or save_model_code is None:
-            if _fallback_import_error is not None:
-                raise LLMModelAssemblerError(
-                    f"Programmatic assembler not available: {_fallback_import_error}"
-                )
-            else:
-                raise LLMModelAssemblerError(
-                    "Programmatic assembler not available and LLM failed."
-                )
-
-        try:
-            # Ensure the programmatic ModelConfig class is available.
-            # The earlier checks guarantee assemble_model_code/save_model_code exist,
-            # but static type checkers may still consider ModelConfig None, so guard explicitly.
-            if ModelConfig is None:
-                raise LLMModelAssemblerError(
-                    "Programmatic ModelConfig class not available for fallback assembler."
-                )
-
-            # If the caller already provided a ModelConfig instance, use it directly.
-            if isinstance(model_config, ModelConfig):
-                cfg = model_config
-            else:
-                # Coerce dict-like configs into a ModelConfig safely.
-                if isinstance(model_config, dict):
-                    class_name = model_config.get("class_name") or "AssembledModel"
-                    input_shape = model_config.get("input_shape")
-                    layers = list(model_config.get("layers", []))
-                    docstring = model_config.get("docstring")
-                    cfg = ModelConfig(
-                        class_name=str(class_name),
-                        input_shape=input_shape,
-                        layers=layers,
-                        docstring=docstring,
-                    )
+                    logger.info(f"🔄 Retry {attempt + 2}/{max_llm_retries} with improved prompt...")
+                    raise val_exc  # Re-raise to trigger retry logic
+                
+                # Save the validated code
+                if save_model_code is not None:
+                    save_model_code(out_path, code, overwrite=True)
                 else:
-                    # Unknown shape: create a minimal ModelConfig to allow assembly.
-                    cfg = ModelConfig(class_name="AssembledModel", layers=[])
+                    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+                    Path(out_path).write_text(code, encoding="utf-8")
+                
+                logger.info(f"💾 Model assembled via LLM and saved to {out_path} (attempt {attempt + 1})")
+                logger.info(f"🎉 LLM ASSEMBLER SUCCESS!")
+                
+                return {
+                    "path": out_path,
+                    "via": "llm",
+                    "source": code,
+                    "llm_response": raw,
+                    "attempts": attempt + 1,
+                    "sandbox_error": sandbox_error,  # Include original error for tracking
+                }
+                
+            except Exception as exc:
+                # Enhanced logging to help debug LLM failures
+                logger.error(f"❌ LLM attempt {attempt + 1}/{max_llm_retries} failed: {exc}")
+                
+                if attempt < max_llm_retries - 1:
+                    # Add error feedback to prompt for next attempt
+                    if hasattr(exc, 'args') and exc.args:
+                        error_msg = str(exc.args[0])
+                        logger.info(f"📝 Adding error feedback for retry: {error_msg}")
+                        # The error feedback will be included in next attempt's prompt
+                
+                if attempt == max_llm_retries - 1:
+                    # Last attempt failed, log comprehensive details for analysis
+                    logger.error(f"🚫 LLM ASSEMBLER FAILED after {max_llm_retries} attempts")
+                    
+                    # Log all details for prompt improvement analysis (safe access)
+                    try:
+                        if 'raw' in locals():
+                            logger.error(f"📦 Final attempt LLM raw response: {locals()['raw']}")
+                        if 'code' in locals():
+                            logger.error(f"📄 Final attempt extracted code: {locals()['code']}")
+                    except NameError:
+                        logger.error("📦 Final attempt details unavailable")
+                    
+                    logger.info("🔄 LLM fallback complete - deterministic-first already attempted")
+                else:
+                    logger.info(f"🔄 Retrying LLM generation (attempt {attempt + 2})")
 
-            # This fallback block is now unreachable due to deterministic-first strategy above
-            logger.warning("Fallback assembler reached unexpectedly")
-            raise LLMModelAssemblerError("Unexpected fallback path reached")
-        except Exception as exc:
-            logger.error("Fallback assembler failed: %s", exc)
-            raise LLMModelAssemblerError(f"Fallback assembler failed: {exc}") from exc
+        # Final fallback - should not be reached due to deterministic-first strategy
+        logger.warning("All assembly paths failed")
+        raise LLMModelAssemblerError("Both deterministic and LLM assembly failed")
 
 
 # Default prompt template asking for a structured JSON response with a "python" key

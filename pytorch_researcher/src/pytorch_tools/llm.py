@@ -76,7 +76,7 @@ class DisabledLLMClient(BaseLLMClient):
         raise LLMClientError("LLM usage is disabled (DisabledLLMClient was provided)")
 
 
-class HTTPLLMClient(BaseLLMClient):
+class LiteLLMClient(BaseLLMClient):
     """
     LLM client using LiteLLM for unified provider interface.
 
@@ -107,7 +107,7 @@ class HTTPLLMClient(BaseLLMClient):
         retry_backoff: float = 1.0,
     ) -> None:
         if not base_url:
-            raise ValueError("base_url must be provided for HTTPLLMClient")
+            raise ValueError("base_url must be provided for LiteLLMClient")
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
         self.api_key = api_key
@@ -147,7 +147,7 @@ class HTTPLLMClient(BaseLLMClient):
             completion_kwargs["api_base"] = self.base_url
             
             # Enhanced logging for debugging
-            logger.info(f"🚀 HTTPLLM CALL START - Model: {model_name}")
+            logger.info(f"🚀 LiteLLM CALL START - Model: {model_name}")
             logger.info(f"📝 Base URL: {self.base_url}")
             logger.info(f"🔑 Using API Key: {'Yes' if self.api_key else 'No'}")
             
@@ -244,7 +244,7 @@ class HTTPLLMClient(BaseLLMClient):
 
 __all__ = [
     "BaseLLMClient",
-    "HTTPLLMClient",
+    "LiteLLMClient",
     "DisabledLLMClient",
     "LLMClientError",
 ]

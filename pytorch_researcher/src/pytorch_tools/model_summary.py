@@ -29,10 +29,10 @@ from typing import Any, Dict, Optional, Tuple
 # Optional LLM client abstractions (factored out for DRYness).
 # Import is best-effort so environments without the llm module still work.
 try:
-    from pytorch_researcher.src.pytorch_tools.llm import BaseLLMClient, HTTPLLMClient
+    from pytorch_researcher.src.pytorch_tools.llm import BaseLLMClient, LiteLLMClient
 except Exception:
     BaseLLMClient = None  # type: ignore
-    HTTPLLMClient = None  # type: ignore
+    LiteLLMClient = None  # type: ignore
 
 _logger = logging.getLogger(__name__)
 

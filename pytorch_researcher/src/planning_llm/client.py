@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Planning LLM client (HTTP-only) and Orchestrator.
+Planning LLM client and Orchestrator.
 
 This module provides:
-- PlanningLLMClient: an HTTP-only client for chat-completion endpoints. It
-  posts to "<base_url>/chat/completions" and returns parsed, validated JSON
-  according to the orchestrator's expected structured schemas.
+- PlanningLLMClient: A unified LLM client using LiteLLM for chat-completion endpoints.
+  It supports various providers (OpenAI, Anthropic, local, etc.) and returns parsed,
+  validated JSON according to the orchestrator's expected structured schemas.
 - Orchestrator: a lightweight orchestrator class that ties PlanningLLMClient
   with pluggable tool callables (assembler, summarizer, evaluator, sandbox runner,
   registry writer) and implements the iteration loop.
 
 Design goals:
-- Keep the LLM transport HTTP-only (no external SDK dependency).
+- Use LiteLLM for unified interface across different LLM providers.
 - Keep the client small and testable; higher-level prompt templates live in the
   orchestrator or the caller.
 - Make all external integrations (assembler, summarizer, evaluator, sandbox,
@@ -34,11 +34,11 @@ try:
 except ImportError as e:
     raise ImportError(f"Required dependency 'litellm' not found: {e}") from e
 
-# Import the repository-local HTTP LLM client abstraction (DRY) - keeping for fallback
+# Import the repository-local HTTP LLM client abstraction (DRY)
 try:
-    from pytorch_researcher.src.pytorch_tools.llm import HTTPLLMClient, LLMClientError
+    from pytorch_researcher.src.pytorch_tools.llm import LiteLLMClient, LLMClientError
 except Exception:  # pragma: no cover - defensive import for environments without module
-    HTTPLLMClient = None  # type: ignore
+    LiteLLMClient = None  # type: ignore
     LLMClientError = Exception  # type: ignore
 
 # Import LLM logger
@@ -67,7 +67,7 @@ class PlanningLLMClientError(Exception):
     """Raised for planning LLM client errors."""
 
 
-class PlanningLLMClient:
+class PlanningLLMClient(LiteLLMClient):
     """
     Planning LLM client using LiteLLM for unified provider interface.
 
@@ -99,16 +99,14 @@ class PlanningLLMClient:
         system_prompt: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> None:
-        if not base_url:
-            raise ValueError("base_url is required for PlanningLLMClient")
-        
-        # Store LLM parameters for LiteLLM
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.api_key = api_key
+        super().__init__(
+            base_url=base_url,
+            model_name=model,
+            api_key=api_key,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff,
+        )
         self.timeout = int(timeout)
-        self.max_retries = int(max_retries)
-        self.retry_backoff = float(retry_backoff)
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.run_id = run_id
         
@@ -119,178 +117,17 @@ class PlanningLLMClient:
         self, prompt: str, temperature: float = 0.0, timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Perform an assistant call using LiteLLM and return a dict {"raw": parsed_response}.
+        Perform an assistant call using the parent LiteLLMClient.
         Wrap transport exceptions in PlanningLLMClientError.
         """
-        # Prepare messages for LiteLLM
-        messages = [
-            {"role": "system", "content": self.get_system_prompt()},
-            {"role": "user", "content": prompt},
-        ]
-        
-        # Prepare LiteLLM completion call parameters
-        model_name = self.model
-        completion_kwargs = {
-            "model": model_name,
-            "messages": messages,
-            "temperature": float(temperature),
-        }
-        
-        # Configure provider and base URL based on endpoint
-        if self.base_url:
-            # Use 'api_base' instead of 'base_url' for LiteLLM compatibility
-            completion_kwargs["api_base"] = self.base_url
-            
-            # For OpenRouter specifically, ensure the full model name is preserved
-            # The key insight: use 'openai' provider with custom api_base to bypass
-            # LiteLLM's auto-detection that strips prefixes for unknown models
-            if "openrouter.ai" in self.base_url.lower():
-                # Always ensure model has the provider prefix for OpenRouter
-                if not model_name.startswith("openrouter/"):
-                    model_name = f"openrouter/{model_name}"
-                    completion_kwargs["model"] = model_name
-                    logger.info(f"Added OpenRouter prefix to model: {model_name}")
-                # Use 'openai' provider to bypass auto-detection for unknown models
-                completion_kwargs["custom_llm_provider"] = "openai"
-                logger.info(f"Using openai provider with OpenRouter base URL to bypass auto-detection")
-            else:
-                # For other custom endpoints, use 'openai' provider
-                completion_kwargs["custom_llm_provider"] = "openai"
-        # If no base_url provided, use default providers
-            
-        if self.api_key:
-            completion_kwargs["api_key"] = self.api_key
-            
-        # Handle timeout
-        effective_timeout = timeout or self.timeout
-        if effective_timeout:
-            completion_kwargs["timeout"] = effective_timeout
-            
-        # Handle retries
-        if self.max_retries:
-            completion_kwargs["num_retries"] = self.max_retries
-
-        start_time = time.time()
-        
         try:
-            # Enhanced logging for debugging LiteLLM integration
-            logger.info(f"🚀 LLM CALL START - Model: {model_name}, Provider: {completion_kwargs.get('custom_llm_provider', 'default')}")
-            logger.info(f"📝 Messages to LLM: {len(messages)} messages")
-            logger.info(f"🔑 Using API Key: {'Yes' if completion_kwargs.get('api_key') else 'No'}")
-            logger.info(f"⏱️ Timeout: {effective_timeout}s")
-            logger.info(f"🔧 Full completion_kwargs: {completion_kwargs}")
-            
-            # Call LiteLLM with enhanced logging
-            response = completion(**completion_kwargs)
-            call_duration = time.time() - start_time
-            
-            logger.info(f"✅ LLM CALL COMPLETE - Duration: {call_duration:.2f}s")
-            logger.info(f"📦 Response type: {type(response).__name__}")
-            
-            # Extract the response content with detailed logging
-            content = None
-            response_info = {}
-            
-            if hasattr(response, 'choices') and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, 'message') and choice.message:
-                    content = choice.message.content
-                    response_info['method'] = 'choices[0].message.content'
-                else:
-                    content = str(choice)
-                    response_info['method'] = 'choices[0].str()'
-            else:
-                # Fallback for other response formats
-                content = str(response)
-                response_info['method'] = 'str(response)'
-
-            logger.info(f"📄 Content extracted via: {response_info['method']}")
-            logger.info(f"📏 Content length: {len(content) if content else 0} chars")
-            logger.info(f"🔍 Content preview: {content[:200]!r}{'...' if content and len(content) > 200 else ''}" if content else "🔍 Content preview: None")
-            
-            # Log LLM interaction if logger is available
-            if self.llm_logger and log_llm_call:
-                try:
-                    # Determine call type and provider
-                    call_type = getattr(self, '_current_call_type', 'unknown_call')
-                    provider = "unknown"
-                    
-                    # Determine provider
-                    if "openrouter.ai" in self.base_url.lower():
-                        provider = "openrouter"
-                    elif "openai.com" in self.base_url.lower():
-                        provider = "openai"
-                    elif "localhost" in self.base_url:
-                        provider = "local"
-                    else:
-                        provider = "custom"
-                    
-                    log_llm_call(
-                        call_type=call_type,
-                        model_name=model_name,
-                        provider=provider,
-                        messages=messages,
-                        response=response,
-                        duration=call_duration,
-                        temperature=completion_kwargs.get('temperature', 0.0),
-                        timeout=effective_timeout,
-                        run_id=self.run_id,
-                        metadata={
-                            "response_extraction_method": response_info['method'],
-                            "custom_llm_provider": completion_kwargs.get('custom_llm_provider'),
-                        }
-                    )
-                except Exception as log_error:
-                    logger.warning(f"Failed to log LLM interaction: {log_error}")
-            
-            # Return in the format expected by the existing code
-            parsed_response = {"content": content}
-            if hasattr(response, 'choices'):
-                parsed_response["choices"] = [
-                    {"message": {"content": content}}
-                ]
-            
-            logger.info(f"🏁 LLM CALL SUCCESS - Returning parsed response")
-            
-            return {"raw": parsed_response}
-            
-        except APIError as exc:
-            # Log failed call
-            call_duration = time.time() - start_time
-            if self.llm_logger and log_llm_call:
-                try:
-                    log_llm_call(
-                        call_type=getattr(self, '_current_call_type', 'unknown_call'),
-                        model_name=model_name,
-                        provider="unknown",
-                        messages=messages,
-                        response=None,
-                        duration=call_duration,
-                        error=str(exc),
-                        run_id=self.run_id
-                    )
-                except Exception:
-                    pass  # Don't let logging errors affect the main flow
-            
-            raise PlanningLLMClientError(f"LiteLLM API error: {exc}") from exc
+            # Use parent's call method
+            # Note: parent call method handles logging and retries
+            return self.call(prompt, temperature=temperature, timeout=timeout or self.timeout)
+        except LLMClientError as exc:
+            # Re-raise as PlanningLLMClientError for backward compatibility
+            raise PlanningLLMClientError(f"LLM client error: {exc}") from exc
         except Exception as exc:
-            # Log failed call
-            call_duration = time.time() - start_time
-            if self.llm_logger and log_llm_call:
-                try:
-                    log_llm_call(
-                        call_type=getattr(self, '_current_call_type', 'unknown_call'),
-                        model_name=model_name,
-                        provider="unknown",
-                        messages=messages,
-                        response=None,
-                        duration=call_duration,
-                        error=str(exc),
-                        run_id=self.run_id
-                    )
-                except Exception:
-                    pass  # Don't let logging errors affect the main flow
-            
             raise PlanningLLMClientError(f"Unexpected LLM error: {exc}") from exc
 
     @staticmethod

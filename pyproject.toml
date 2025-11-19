@@ -33,8 +33,9 @@ dependencies = [
     "numpy>=1.24.0",
     
     # LLM Integration
-    "memori>=2.3.0",
+    "memorisdk @ https://github.com/GibsonAI/Memori/archive/refs/tags/v2.1.1.tar.gz",
     "litellm>=1.80.0",
+    "tenacity>=8.0.0",
     
     # Image Processing (used by torchvision datasets)
     "pillow>=9.0.0",
@@ -84,6 +85,9 @@ Repository = "https://github.com/pytorch-researcher/pytorch-ml-research-agent.gi
 [project.scripts]
 research-agent = "pytorch_researcher.src.agent_orchestrator:main"
 quick-evaluator = "pytorch_researcher.src.pytorch_tools.quick_evaluator:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["pytorch_researcher"]
