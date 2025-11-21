@@ -15,24 +15,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
-# Memori integration for manual memory management
-# Apply essential patches for FTS5 and timeout issues
-# try:
-#     from memori_patches import *
-# except ImportError:
-#     pass  # Enhanced patches not available, continue without them
-
-try:
-    from memori import Memori
-except ImportError as e:
-    raise ImportError(f"Required dependency 'memori' not found: {e}") from e
+from memori import Memori
 
 # Manual memory management for controlled operations
 from pytorch_researcher.src.memory import (
