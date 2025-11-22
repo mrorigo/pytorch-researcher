@@ -1,5 +1,4 @@
-"""
-Sandbox runner and harness utilities.
+"""Sandbox runner and harness utilities.
 
 This module provides a safe-ish subprocess-based harness to import and execute
 LLM-generated model code in an isolated Python subprocess. It is intended for
@@ -34,6 +33,7 @@ Returns:
       - duration: float seconds
       - parsed: dict or None (parsed JSON from harness stdout when available)
       - error: str when success is False and no parsed info is present
+
 """
 
 from __future__ import annotations
@@ -41,13 +41,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shlex
 import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -217,13 +217,13 @@ if __name__ == '__main__':
 """
 
 
-def _write_harness_temp() -> Tuple[Path, bool]:
-    """
-    Write the harness template to a temporary file and return its Path.
+def _write_harness_temp() -> tuple[Path, bool]:
+    """Write the harness template to a temporary file and return its Path.
 
     Returns:
         (path, delete_on_exit) - path of the file, and whether the caller should
         attempt to delete it after use (True).
+
     """
     tf = tempfile.NamedTemporaryFile(
         delete=False, suffix=".py", prefix="sandbox_harness_"
@@ -239,14 +239,13 @@ def _write_harness_temp() -> Tuple[Path, bool]:
 
 def run_sandboxed_harness(
     model_path: str,
-    class_name: Optional[str] = None,
-    input_size: Optional[Sequence[int]] = (1, 3, 32, 32),
+    class_name: str | None = None,
+    input_size: Sequence[int] | None = (1, 3, 32, 32),
     timeout: int = 60,
-    python_executable: Optional[str] = None,
-    extra_env: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
-    """
-    Run the harness in a subprocess to validate the generated model.
+    python_executable: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run the harness in a subprocess to validate the generated model.
 
     Args:
         model_path: path to the generated Python source file for the model.
@@ -265,6 +264,7 @@ def run_sandboxed_harness(
           - duration (float)
           - parsed (dict or None)
           - error (str when applicable)
+
     """
     start = time.time()
     python_executable = python_executable or sys.executable
@@ -326,7 +326,7 @@ def run_sandboxed_harness(
         except Exception:
             parsed = None
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "success": proc.returncode == 0,
             "returncode": proc.returncode,
             "stdout": stdout,

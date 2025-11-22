@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -198,7 +197,7 @@ def test_create_pytorch_project_scaffold_success(tmp_path):
     assert os.path.isdir(os.path.join(project_root, "experiments"))
     registry_path = os.path.join(project_root, "experiments", "registry.json")
     assert os.path.exists(registry_path)
-    with open(registry_path, "r", encoding="utf-8") as f:
+    with open(registry_path, encoding="utf-8") as f:
         content = f.read()
     assert content.strip() == "[]"
 

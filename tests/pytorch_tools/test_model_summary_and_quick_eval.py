@@ -1,5 +1,4 @@
 import importlib.util
-import sys
 from pathlib import Path
 from textwrap import dedent
 
@@ -196,7 +195,7 @@ def test_quick_evaluator_integration_with_saved_model(tmp_path):
     # Import module and instantiate class
     mod = _import_module_from_path(mod_path, "saved_mod_test")
     assert hasattr(mod, "SavedModel")
-    cls = getattr(mod, "SavedModel")
+    cls = mod.SavedModel
     model = cls()
 
     cfg = quick_evaluator.QuickEvalConfig(

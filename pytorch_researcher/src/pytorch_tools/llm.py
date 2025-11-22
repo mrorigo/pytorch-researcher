@@ -1,6 +1,5 @@
 # pytorch-researcher/pytorch_researcher/src/pytorch_tools/llm.py
-"""
-LLM client abstractions for the PyTorch Researcher tools.
+"""LLM client abstractions for the PyTorch Researcher tools.
 
 This module provides a small, dependency-light abstraction for interacting with
 an LLM. The goal is to allow tools to depend on a minimal interface and enable
@@ -24,10 +23,9 @@ Design notes:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     from litellm import completion
@@ -43,8 +41,7 @@ class LLMClientError(Exception):
 
 
 class BaseLLMClient:
-    """
-    Minimal LLM client interface used by assembler and other tools.
+    """Minimal LLM client interface used by assembler and other tools.
 
     Implementations must provide the `call` method below.
 
@@ -56,15 +53,14 @@ class BaseLLMClient:
 
     def call(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         raise NotImplementedError(
             "BaseLLMClient.call must be implemented by subclasses"
         )
 
 
 class DisabledLLMClient(BaseLLMClient):
-    """
-    A sentinel client that signals LLM usage is disabled.
+    """A sentinel client that signals LLM usage is disabled.
 
     Calling `call` will raise `LLMClientError`. Tools can check for this if they
     need to provide alternative behavior.
@@ -72,13 +68,12 @@ class DisabledLLMClient(BaseLLMClient):
 
     def call(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         raise LLMClientError("LLM usage is disabled (DisabledLLMClient was provided)")
 
 
 class LiteLLMClient(BaseLLMClient):
-    """
-    LLM client using LiteLLM for unified provider interface.
+    """LLM client using LiteLLM for unified provider interface.
 
     This client uses LiteLLM to provide a unified interface for different LLM providers
     while maintaining compatibility with the existing API. It supports HTTP-only providers
@@ -96,13 +91,14 @@ class LiteLLMClient(BaseLLMClient):
         Number of retries on transient failures (default: 2).
     retry_backoff: float
         Base backoff seconds used for exponential backoff (default: 1.0).
+
     """
 
     def __init__(
         self,
         base_url: str,
         model_name: str = "gpt-5.1-mini",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         max_retries: int = 2,
         retry_backoff: float = 1.0,
     ) -> None:
@@ -116,9 +112,8 @@ class LiteLLMClient(BaseLLMClient):
 
     def call(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
-    ) -> Dict[str, Any]:
-        """
-        Perform an LLM call using LiteLLM and return {"raw": parsed_response}.
+    ) -> dict[str, Any]:
+        """Perform an LLM call using LiteLLM and return {"raw": parsed_response}.
 
         This method uses LiteLLM to provide a unified interface for different LLM providers
         while maintaining the existing API contract. Retries on transient errors using
@@ -132,7 +127,7 @@ class LiteLLMClient(BaseLLMClient):
             },
             {"role": "user", "content": prompt},
         ]
-        
+
         # Prepare LiteLLM completion call parameters
         model_name = self.model_name
         completion_kwargs = {
@@ -140,26 +135,21 @@ class LiteLLMClient(BaseLLMClient):
             "messages": messages,
             "temperature": float(temperature),
         }
-        
+
         # Configure API base URL and API key for LiteLLM based on endpoint
         if self.base_url:
             # Use 'api_base' instead of 'base_url' for LiteLLM compatibility
             completion_kwargs["api_base"] = self.base_url
-            
+
             # Enhanced logging for debugging
             logger.info(f"🚀 LiteLLM CALL START - Model: {model_name}")
             logger.info(f"📝 Base URL: {self.base_url}")
             logger.info(f"🔑 Using API Key: {'Yes' if self.api_key else 'No'}")
-            
+
             # Special handling for different providers
             if "openrouter.ai" in self.base_url.lower():
-                # OpenRouter-specific configuration - add prefix if not present
-                if not model_name.startswith("openrouter/"):
-                    model_name = f"openrouter/{model_name}"
-                    completion_kwargs["model"] = model_name
-                    logger.info(f"Added OpenRouter prefix to model: {model_name}")
                 completion_kwargs["custom_llm_provider"] = "openai"
-                logger.info(f"Using OpenRouter with provider: openai")
+                logger.info("Using OpenRouter with provider: openai")
                 if self.api_key:
                     completion_kwargs["api_key"] = self.api_key
             elif "localhost" in self.base_url or "127.0.0.1" in self.base_url:
@@ -173,32 +163,32 @@ class LiteLLMClient(BaseLLMClient):
                     completion_kwargs["api_key"] = self.api_key
                 else:
                     completion_kwargs["api_key"] = "local"
-                logger.info(f"Using local endpoint with provider: openai")
+                logger.info("Using local endpoint with provider: openai")
             else:
                 # For other endpoints (OpenAI, etc.) - respect exact model name
                 completion_kwargs["custom_llm_provider"] = "openai"
-                logger.info(f"Using custom endpoint with provider: openai")
+                logger.info("Using custom endpoint with provider: openai")
                 if self.api_key:
                     completion_kwargs["api_key"] = self.api_key
-            
+
         # Handle timeout - LiteLLM uses timeout parameter directly
         if timeout:
             completion_kwargs["timeout"] = timeout
-            
+
         # Handle retries - LiteLLM supports num_retries parameter
         if self.max_retries:
             completion_kwargs["num_retries"] = self.max_retries
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(1 + self.max_retries):
             try:
                 # Use LiteLLM completion function
                 logger.debug(f"Calling LiteLLM with model: {model_name}, timeout: {timeout}")
                 response = completion(**completion_kwargs)
-                
+
                 # Log the raw response for debugging
                 logger.debug(f"Raw LiteLLM response: {response}")
-                
+
                 # Extract the response content following the existing pattern
                 if hasattr(response, 'choices') and response.choices:
                     choice = response.choices[0]
@@ -209,18 +199,18 @@ class LiteLLMClient(BaseLLMClient):
                 else:
                     # Fallback for other response formats
                     content = str(response)
-                
+
                 logger.debug(f"Extracted content (length {len(content) if content else 0}): {content[:500]!r}...")
-                
+
                 # Return in the format expected by the existing code
                 parsed_response = {"content": content}
                 if hasattr(response, 'choices'):
                     parsed_response["choices"] = [
                         {"message": {"content": content}}
                     ]
-                
+
                 return {"raw": parsed_response}
-                
+
             except APIError as exc:
                 # LiteLLM-specific errors
                 raise LLMClientError(f"LiteLLM API error: {exc}") from exc
@@ -244,7 +234,7 @@ class LiteLLMClient(BaseLLMClient):
 
 __all__ = [
     "BaseLLMClient",
-    "LiteLLMClient",
     "DisabledLLMClient",
     "LLMClientError",
+    "LiteLLMClient",
 ]

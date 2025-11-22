@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Planning LLM client and Orchestrator.
+"""Planning LLM client and Orchestrator.
 
 This module provides:
 - PlanningLLMClient: A unified LLM client using LiteLLM for chat-completion endpoints.
@@ -23,16 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
-
-# Import LiteLLM for unified LLM interface
-try:
-    from litellm import completion
-    from litellm.exceptions import APIError
-except ImportError as e:
-    raise ImportError(f"Required dependency 'litellm' not found: {e}") from e
+from typing import Any
 
 # Import the repository-local HTTP LLM client abstraction (DRY)
 try:
@@ -43,7 +35,10 @@ except Exception:  # pragma: no cover - defensive import for environments withou
 
 # Import LLM logger
 try:
-    from pytorch_researcher.src.pytorch_tools.llm_logger import get_llm_logger, log_llm_call
+    from pytorch_researcher.src.pytorch_tools.llm_logger import (
+        get_llm_logger,
+        log_llm_call,
+    )
 except ImportError:
     # Fallback if logger not available
     get_llm_logger = None
@@ -56,10 +51,10 @@ logger.propagate = True  # Propagate logs to parent logger for consistent output
 
 # Export public API
 __all__ = [
-    "PlanningLLMClient",
-    "PlanningLLMClientError",
     "Orchestrator",
     "OrchestratorError",
+    "PlanningLLMClient",
+    "PlanningLLMClientError",
 ]
 
 
@@ -68,12 +63,11 @@ class PlanningLLMClientError(Exception):
 
 
 class PlanningLLMClient(LiteLLMClient):
-    """
-    Planning LLM client using LiteLLM for unified provider interface.
+    """Planning LLM client using LiteLLM for unified provider interface.
 
     This client uses LiteLLM to provide a unified interface for different LLM providers
     and returns parsed structured JSON results for higher-level orchestrator use.
-    
+
     The client supports any LLM provider supported by LiteLLM including OpenAI,
     Anthropic, local endpoints like Ollama, and many others.
 
@@ -92,12 +86,12 @@ class PlanningLLMClient(LiteLLMClient):
         self,
         base_url: str,
         model: str = "gpt-5.1-mini",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: int = 300,
         max_retries: int = 2,
         retry_backoff: float = 1.0,
-        system_prompt: Optional[str] = None,
-        run_id: Optional[str] = None,
+        system_prompt: str | None = None,
+        run_id: str | None = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
@@ -109,15 +103,14 @@ class PlanningLLMClient(LiteLLMClient):
         self.timeout = int(timeout)
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.run_id = run_id
-        
+
         # Initialize LLM logger
         self.llm_logger = get_llm_logger() if get_llm_logger else None
 
     def _call(
-        self, prompt: str, temperature: float = 0.0, timeout: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Perform an assistant call using the parent LiteLLMClient.
+        self, prompt: str, temperature: float = 0.0, timeout: int | None = None
+    ) -> dict[str, Any]:
+        """Perform an assistant call using the parent LiteLLMClient.
         Wrap transport exceptions in PlanningLLMClientError.
         """
         try:
@@ -132,11 +125,10 @@ class PlanningLLMClient(LiteLLMClient):
 
     @staticmethod
     def _extract_assistant_text(raw: Any) -> str:
-        """
-        Extract assistant textual content from common chat-completion shapes.
+        """Extract assistant textual content from common chat-completion shapes.
         Returns a best-effort string (may be JSON text).
         """
-        text: Optional[str] = None
+        text: str | None = None
         try:
             if isinstance(raw, dict) and "choices" in raw:
                 choices = raw.get("choices") or []
@@ -160,48 +152,48 @@ class PlanningLLMClient(LiteLLMClient):
                 text = str(raw)
         return text
 
-    def _format_memory_context(self, memory_context: List[Dict[str, Any]]) -> str:
-        """
-        Format memory context for LLM consumption.
-        
+    def _format_memory_context(self, memory_context: list[dict[str, Any]]) -> str:
+        """Format memory context for LLM consumption.
+
         This method provides fallback formatting if memory manager is not available.
         When memory manager is available, it should be preferred for formatting.
-        
+
         Args:
             memory_context: List of memory context items with metadata
-            
+
         Returns:
             Formatted memory context string for injection into prompts
+
         """
         if not memory_context:
             return ""
-        
+
         prompt = "=== RELEVANT RESEARCH INSIGHTS ===\n"
         prompt += "Use these insights to inform your decisions:\n\n"
-        
+
         # Prioritize essential memories and organize by category
         essential_memories = []
         regular_memories = []
-        
+
         for context_item in memory_context:
             category = context_item.get("category_primary", "")
             if category.startswith("essential_"):
                 essential_memories.append(context_item)
             else:
                 regular_memories.append(context_item)
-        
+
         # Add essential memories first (higher priority)
         for context_item in essential_memories:
             category = context_item.get("category_primary", "research")
             content = context_item.get("searchable_content", "") or context_item.get("summary", "")
             prompt += f"[{category.upper()}] {content}\n"
-        
+
         # Add regular memories
         for context_item in regular_memories:
             category = context_item.get("category_primary", "research")
             content = context_item.get("searchable_content", "") or context_item.get("summary", "")
             prompt += f"- [{category}] {content}\n"
-        
+
         prompt += "\n=== END RESEARCH INSIGHTS ===\n"
         return prompt
 
@@ -213,14 +205,13 @@ class PlanningLLMClient(LiteLLMClient):
         )
 
     def propose_initial_config(
-        self, 
-        goal: str, 
-        constraints: Optional[Dict[str, Any]] = None,
-        memory_context: Optional[List[Dict[str, Any]]] = None,
-        iteration: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Ask the planning LLM to propose an initial `model_config` and evaluation configuration.
+        self,
+        goal: str,
+        constraints: dict[str, Any] | None = None,
+        memory_context: list[dict[str, Any]] | None = None,
+        iteration: int | None = None
+    ) -> dict[str, Any]:
+        """Ask the planning LLM to propose an initial `model_config` and evaluation configuration.
 
         Expected assistant JSON schema (example):
         {
@@ -245,11 +236,12 @@ class PlanningLLMClient(LiteLLMClient):
 
         Returns:
             The parsed dict. Raises PlanningLLMClientError on parse/validation errors.
+
         """
         # Set current call type for logging
         self._current_call_type = "propose_initial_config"
-        
-        prompt_parts: List[str] = [
+
+        prompt_parts: list[str] = [
             self.get_system_prompt(),
             "Task: Propose an initial model_config and evaluation configuration for the research goal below.",
             "Return EXACTLY one JSON object and nothing else, following this schema:",
@@ -258,12 +250,12 @@ class PlanningLLMClient(LiteLLMClient):
             "Goal:",
             goal,
         ]
-        
+
         # Inject memory context if provided
         if memory_context:
             memory_prompt = self._format_memory_context(memory_context)
             prompt_parts.insert(3, memory_prompt)  # Insert after schema, before goal
-        
+
         if constraints:
             prompt_parts.extend(
                 ["", "Constraints (JSON):", json.dumps(constraints, indent=2)]
@@ -290,22 +282,22 @@ class PlanningLLMClient(LiteLLMClient):
                 if lines and lines[-1].strip() == '```':
                     lines = lines[:-1]  # Remove last line
                 assistant_text = '\n'.join(lines)
-            
+
             # Handle Python-style tuples/commas in JSON (convert to JSON arrays)
             # Replace patterns like (1, 2, 3) with [1, 2, 3]
             import re
             assistant_text = re.sub(r'\(\s*(\d+(?:\s*,\s*\d+)*)\s*\)', r'[\1]', assistant_text)
-            
+
             # Also handle single numbers in parentheses like (0.5) -> [0.5]
             assistant_text = re.sub(r'\(\s*([\d.]+)\s*\)', r'[\1]', assistant_text)
-            
+
             parsed = json.loads(assistant_text)
         except Exception as exc:
             # Enhanced error logging for JSON parsing issues
             logger.error(f"JSON parsing failed for proposal. Error: {exc}")
             logger.error(f"Raw assistant text (length {len(assistant_text)}): {assistant_text[:1000]!r}")
             logger.error(f"Assistant text ends with: ...{assistant_text[-200:]!r}")
-            
+
             # Try to identify the issue
             if "Unterminated string" in str(exc):
                 logger.error("ISSUE: Unterminated string detected in JSON response")
@@ -314,7 +306,7 @@ class PlanningLLMClient(LiteLLMClient):
                 for i, line in enumerate(lines):
                     if line.strip().startswith('"') and not line.strip().endswith('"'):
                         logger.error(f"Problematic line {i+1}: {line!r}")
-            
+
             raise PlanningLLMClientError(
                 f"Failed to parse assistant JSON for proposal: {exc}. Raw: {assistant_text!r}"
             ) from exc
@@ -327,7 +319,7 @@ class PlanningLLMClient(LiteLLMClient):
             raise PlanningLLMClientError(
                 f"Assistant returned invalid proposal schema: {parsed!r}"
             )
-        
+
         # Set default evaluation_config if not provided
         if "evaluation_config" not in parsed:
             parsed["evaluation_config"] = {
@@ -337,20 +329,19 @@ class PlanningLLMClient(LiteLLMClient):
                 "batch_size": 32,
                 "target_accuracy": 0.7
             }
-            
+
         return parsed
 
     def decide_next_action(
         self,
         goal: str,
-        registry: Sequence[Dict[str, Any]],
-        latest_result: Dict[str, Any],
-        original_proposal: Optional[Dict[str, Any]] = None,
-        memory_context: Optional[List[Dict[str, Any]]] = None,
-        iteration: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Ask the planning LLM to decide the next action.
+        registry: Sequence[dict[str, Any]],
+        latest_result: dict[str, Any],
+        original_proposal: dict[str, Any] | None = None,
+        memory_context: list[dict[str, Any]] | None = None,
+        iteration: int | None = None
+    ) -> dict[str, Any]:
+        """Ask the planning LLM to decide the next action.
 
         Expected assistant JSON schema:
         {
@@ -369,11 +360,12 @@ class PlanningLLMClient(LiteLLMClient):
 
         Returns:
             The parsed dict; raises PlanningLLMClientError on parse/validation errors.
+
         """
         # Set current call type for logging
         self._current_call_type = "decide_next_action"
-        
-        prompt_parts: List[str] = [
+
+        prompt_parts: list[str] = [
             self.get_system_prompt(),
             "Task: Based on the goal, the experiment registry, and the latest result, decide the NEXT ACTION.",
             "Return EXACTLY one JSON object with keys: action (refine|achieve|stop), reason (string), next_config (optional dict if refine).",
@@ -387,12 +379,12 @@ class PlanningLLMClient(LiteLLMClient):
             "Experiment registry (most recent entries):",
             json.dumps(list(registry)[-8:], indent=2),
         ]
-        
+
         # Inject memory context if provided
         if memory_context:
             memory_prompt = self._format_memory_context(memory_context)
             prompt_parts.insert(4, memory_prompt)  # Insert after action schema, before goal
-        
+
         prompt_parts.append("Return only the JSON object — no extra commentary.")
         prompt = "\n".join(prompt_parts)
         raw = self._call(prompt, temperature=0.0, timeout=self.timeout)
@@ -416,22 +408,22 @@ class PlanningLLMClient(LiteLLMClient):
                 if lines and lines[-1].strip() == '```':
                     lines = lines[:-1]  # Remove last line
                 assistant_text = '\n'.join(lines)
-            
+
             # Handle Python-style tuples/commas in JSON (convert to JSON arrays)
             # Replace patterns like (1, 2, 3) with [1, 2, 3]
             import re
             assistant_text = re.sub(r'\(\s*(\d+(?:\s*,\s*\d+)*)\s*\)', r'[\1]', assistant_text)
-            
+
             # Also handle single numbers in parentheses like (0.5) -> [0.5]
             assistant_text = re.sub(r'\(\s*([\d.]+)\s*\)', r'[\1]', assistant_text)
-            
+
             parsed = json.loads(assistant_text)
         except Exception as exc:
             # Enhanced error logging for JSON parsing issues
             logger.error(f"JSON parsing failed for decision. Error: {exc}")
             logger.error(f"Raw assistant text (length {len(assistant_text)}): {assistant_text[:1000]!r}")
             logger.error(f"Assistant text ends with: ...{assistant_text[-200:]!r}")
-            
+
             # Try to identify the issue
             if "Unterminated string" in str(exc):
                 logger.error("ISSUE: Unterminated string detected in JSON response")
@@ -440,7 +432,7 @@ class PlanningLLMClient(LiteLLMClient):
                 for i, line in enumerate(lines):
                     if line.strip().startswith('"') and not line.strip().endswith('"'):
                         logger.error(f"Problematic line {i+1}: {line!r}")
-            
+
             raise PlanningLLMClientError(
                 f"Failed to parse assistant JSON for decision: {exc}. Raw: {assistant_text!r}"
             ) from exc
@@ -453,18 +445,18 @@ class PlanningLLMClient(LiteLLMClient):
             raise PlanningLLMClientError(
                 "Assistant requested 'refine' but did not provide 'next_config'."
             )
-        
+
         # Preserve input_shape from original proposal across iterations
         if (parsed.get("action") == "refine" and
             original_proposal and
             "next_config" in parsed and
             isinstance(parsed["next_config"], dict)):
-            
+
             original_input_shape = original_proposal.get("model_config", {}).get("input_shape")
             if original_input_shape and "input_shape" not in parsed["next_config"]:
                 parsed["next_config"]["input_shape"] = original_input_shape
                 logger.debug(f"Preserved input_shape from original proposal: {original_input_shape}")
-        
+
         return parsed
 
 
@@ -473,8 +465,7 @@ class OrchestratorError(Exception):
 
 
 class Orchestrator:
-    """
-    High-level Orchestrator with optional memory integration.
+    """High-level Orchestrator with optional memory integration.
 
     All external behaviors are injected as callables to improve testability.
 
@@ -508,48 +499,48 @@ class Orchestrator:
         self.target_accuracy = float(target_accuracy)
         self.memory_manager = memory_manager
 
-    def _determine_research_phase(self, registry: Sequence[Dict[str, Any]]) -> str:
-        """
-        Determine current research phase for targeted memory queries.
-        
+    def _determine_research_phase(self, registry: Sequence[dict[str, Any]]) -> str:
+        """Determine current research phase for targeted memory queries.
+
         Args:
             registry: Experiment registry with previous iterations
-            
+
         Returns:
             Current research phase string ('planning', 'architecture', 'evaluation', etc.)
+
         """
         if not registry:
             return "planning"
-        
+
         recent_iterations = list(registry)[-3:]
-        
+
         # Check if we're in architecture refinement phase
         assembly_errors = [i for i in recent_iterations if i.get("assemble_error")]
         if assembly_errors:
             return "architecture"
-        
+
         # Check if we're in evaluation phase
         evaluations = [i for i in recent_iterations if i.get("evaluation")]
         if evaluations:
             return "evaluation"
-        
+
         # Default to planning
         return "planning"
 
-    def _get_memory_context_for_phase(self, goal: str, research_phase: str) -> List[Dict[str, Any]]:
-        """
-        Get memory context for the current research phase.
-        
+    def _get_memory_context_for_phase(self, goal: str, research_phase: str) -> list[dict[str, Any]]:
+        """Get memory context for the current research phase.
+
         Args:
             goal: The research goal
             research_phase: Current research phase
-            
+
         Returns:
             List of relevant memory context items
+
         """
         if not self.memory_manager or not getattr(self.memory_manager, 'enabled', False):
             return []
-        
+
         try:
             memories = self.memory_manager.get_smart_research_context(goal, research_phase)
             # Track memory usage for this phase
@@ -557,13 +548,13 @@ class Orchestrator:
                 self._memory_usage_by_phase = {}
             if research_phase not in self._memory_usage_by_phase:
                 self._memory_usage_by_phase[research_phase] = []
-            
+
             # Store memory IDs used in this phase
             for memory in memories:
                 memory_id = memory.get('id', 'unknown')
                 if memory_id not in self._memory_usage_by_phase[research_phase]:
                     self._memory_usage_by_phase[research_phase].append(memory_id)
-            
+
             logger.info(f"🧠 Memory context retrieved for {research_phase} phase: {len(memories)} memories")
             return memories
         except Exception as e:
@@ -571,23 +562,23 @@ class Orchestrator:
             return []
 
     def _enhanced_decision_making(
-        self, 
-        goal: str, 
-        registry: Sequence[Dict[str, Any]], 
-        latest_result: Dict[str, Any],
-        original_proposal: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Enhanced decision making with memory context.
-        
+        self,
+        goal: str,
+        registry: Sequence[dict[str, Any]],
+        latest_result: dict[str, Any],
+        original_proposal: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Enhanced decision making with memory context.
+
         Args:
             goal: The research goal
             registry: Experiment registry with previous iterations
             latest_result: Latest iteration result
             original_proposal: Optional original proposal
-            
+
         Returns:
             Planning LLM decision with memory-enhanced context
+
         """
         # Get memory context if available
         memory_context = []
@@ -596,7 +587,7 @@ class Orchestrator:
             memory_context = self._get_memory_context_for_phase(goal, research_phase)
             if memory_context:
                 logger.info(f"🧠 Enhanced decision making with {len(memory_context)} memory insights for {research_phase} phase")
-        
+
         # Enhanced decision with memory context
         return self.planning_client.decide_next_action(
             goal=goal,
@@ -607,41 +598,41 @@ class Orchestrator:
         )
 
     def _enhance_proposal_with_memory(
-        self, 
-        proposal: Dict[str, Any], 
-        memory_context: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """
-        Enhance initial proposal with relevant memory insights.
-        
+        self,
+        proposal: dict[str, Any],
+        memory_context: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Enhance initial proposal with relevant memory insights.
+
         Args:
             proposal: Original proposal from planning LLM
             memory_context: Relevant memory context to inject
-            
+
         Returns:
             Enhanced proposal with memory insights
+
         """
         if not memory_context:
             return proposal
-        
+
         enhanced_proposal = proposal.copy()
-        
+
         # Add memory context to notes or metadata
         notes = enhanced_proposal.get("notes", "")
         memory_notes = "=== RELEVANT RESEARCH INSIGHTS ===\n"
-        
+
         for context_item in memory_context:
             category = context_item.get("category_primary", "research")
             content = context_item.get("searchable_content", "") or context_item.get("summary", "")
             memory_notes += f"[{category.upper()}] {content}\n"
-        
+
         memory_notes += "\n=== END RESEARCH INSIGHTS ===\n"
-        
+
         enhanced_proposal["notes"] = memory_notes + notes
         enhanced_proposal["memory_enhanced"] = True
-        
+
         logger.info(f"📝 Enhanced proposal with {len(memory_context)} memory insights")
-        
+
         return enhanced_proposal
 
     def run(
@@ -649,10 +640,9 @@ class Orchestrator:
         goal: str,
         workdir: str,
         keep_artifacts: bool = True,
-        existing_proposal: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Run the Orchestrator loop.
+        existing_proposal: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Run the Orchestrator loop.
 
         Args:
             goal: high-level research goal string.
@@ -662,48 +652,49 @@ class Orchestrator:
 
         Returns:
             A dict with details of the run, iterations and final decision.
+
         """
-        run_report: Dict[str, Any] = {"goal": goal, "iterations": []}
-        
+        run_report: dict[str, Any] = {"goal": goal, "iterations": []}
+
         logger.info(f"🎯 ORCHESTRATOR STARTED - Goal: {goal}")
-        logger.info(f"📊 Planning initial model configuration...")
-        
+        logger.info("📊 Planning initial model configuration...")
+
         # Use existing proposal or request a new one
         if existing_proposal:
-            logger.info(f"🤖 Step 1: Using existing proposal from orchestrator")
+            logger.info("🤖 Step 1: Using existing proposal from orchestrator")
             proposal = existing_proposal
             model_config = proposal.get("model_config")
             evaluation_config = proposal.get("evaluation_config")
         else:
             # 1) request initial proposal
-            logger.info(f"🤖 Step 1: Requesting initial proposal from planning LLM...")
-            
+            logger.info("🤖 Step 1: Requesting initial proposal from planning LLM...")
+
             # Get memory context for initial planning if enabled
             memory_context = []
             if self.memory_manager and getattr(self.memory_manager, 'enabled', False):
                 memory_context = self._get_memory_context_for_phase(goal, "planning")
-            
+
             proposal = self.planning_client.propose_initial_config(
                 goal=goal, constraints=None, memory_context=memory_context
             )
-            
+
             # Enhance proposal with memory insights if available
             if memory_context:
                 proposal = self._enhance_proposal_with_memory(proposal, memory_context)
-            
+
             model_config = proposal.get("model_config")
             evaluation_config = proposal.get("evaluation_config")  # Extract evaluation config for input sizing
-            
+
         run_report["planning_proposal"] = proposal
-        
+
         if model_config is None:
             raise OrchestratorError("Planning LLM returned proposal without model_config")
-            
+
         logger.info(f"✅ Step 1: Initial proposal received - Architecture: {model_config.get('architecture', 'Unknown')}")
 
         for it in range(1, self.max_iterations + 1):
             logger.info(f"🔄 === ITERATION {it}/{self.max_iterations} ===")
-            iter_entry: Dict[str, Any] = {"iteration": it, "model_config": model_config}
+            iter_entry: dict[str, Any] = {"iteration": it, "model_config": model_config}
             iteration_dir = Path(workdir) / f"iter_{it}"
             iteration_dir.mkdir(parents=True, exist_ok=True)
             model_path = str((iteration_dir / "model.py").resolve())
@@ -720,7 +711,7 @@ class Orchestrator:
                 logger.error(f"❌ Step 2.{it}: Model assembly failed: {e}")
                 iter_entry["assemble_error"] = str(e)
                 run_report["iterations"].append(iter_entry)
-                
+
                 # Ask planning LLM whether to stop (with memory context if available)
                 logger.info(f"🤔 Step 2.{it}: Asking planning LLM what to do after assembly failure...")
                 decision = self._enhanced_decision_making(
@@ -732,7 +723,7 @@ class Orchestrator:
 
                 if decision.get("action") == "stop":
                     run_report["final_status"] = "stopped_due_to_assembly_error"
-                    logger.info(f"🛑 Stopping due to assembly error as requested by planning LLM")
+                    logger.info("🛑 Stopping due to assembly error as requested by planning LLM")
                     break
                 else:
                     # if refine suggested, continue loop with provided config
@@ -751,7 +742,7 @@ class Orchestrator:
                         timeout=120,
                     )
                     iter_entry["sandbox"] = sb_res
-                    
+
                     if sb_res.get("success"):
                         logger.info(f"✅ Step 3.{it}: Sandbox validation PASSED")
                         if self.summarizer is not None:
@@ -773,7 +764,7 @@ class Orchestrator:
                         logger.warning(f"❌ Step 3.{it}: Sandbox validation FAILED")
                         sandbox_error = sb_res.get("error") or sb_res.get("stderr")
                         iter_entry["sandbox_error"] = sandbox_error
-                        
+
                         # INTELLIGENT RETRY: If sandbox failed, retry assembly with error feedback
                         logger.info(f"🔄 Step 3.{it}: Sandbox failed - retrying assembly with error feedback...")
                         try:
@@ -782,7 +773,7 @@ class Orchestrator:
                             )
                             iter_entry["assemble"] = retry_asm_res
                             logger.info(f"✅ Step 3.{it}: Model reassembled successfully with error feedback (via {retry_asm_res.get('via', 'unknown')})")
-                            
+
                             # Run sandbox again with the improved model
                             logger.info(f"🔬 Step 3.{it}: Re-running sandbox validation with improved model...")
                             retry_sb_res = self.sandbox_runner(
@@ -792,17 +783,17 @@ class Orchestrator:
                                 timeout=120,
                             )
                             iter_entry["sandbox"] = retry_sb_res
-                            
+
                             if retry_sb_res.get("success"):
                                 logger.info(f"✅ Step 3.{it}: Sandbox validation PASSED on retry!")
                             else:
                                 logger.warning(f"❌ Step 3.{it}: Sandbox still failed after intelligent retry")
                                 iter_entry["sandbox_error"] = retry_sb_res.get("error") or retry_sb_res.get("stderr")
-                                
+
                         except Exception as retry_e:
                             logger.error(f"❌ Step 3.{it}: Intelligent retry assembly failed: {retry_e}")
                             # Continue with original error
-                        
+
                 except Exception as e:
                     logger.error(f"❌ Step 3.{it}: Sandbox execution failed: {e}")
                     iter_entry["sandbox_error"] = str(e)
@@ -863,18 +854,18 @@ class Orchestrator:
                 run_report["last_decision"] = decision
                 action = decision.get("action")
                 logger.info(f"🎯 Step 6.{it}: Planning LLM decision: {action}")
-                
+
                 if action == "achieve":
-                    logger.info(f"🏆 Goal achieved! Planning LLM says we can stop.")
+                    logger.info("🏆 Goal achieved! Planning LLM says we can stop.")
                     run_report["final_status"] = "achieved"
                     break
                 if action == "stop":
-                    logger.info(f"🛑 Planning LLM says to stop.")
+                    logger.info("🛑 Planning LLM says to stop.")
                     run_report["final_status"] = "stopped"
                     break
                 if action == "refine":
                     model_config = decision.get("next_config") or model_config
-                    logger.info(f"🔧 Planning LLM suggests refinement, continuing to next iteration")
+                    logger.info("🔧 Planning LLM suggests refinement, continuing to next iteration")
                     # continue to next iteration
                     continue
 
@@ -882,7 +873,7 @@ class Orchestrator:
                 logger.warning(f"⚠️ Unknown action '{action}' received, stopping")
                 run_report["final_status"] = f"unknown_action:{action}"
                 break
-                
+
             except Exception as e:
                 # If planning LLM fails, stop for safety
                 logger.error(f"❌ Step 6.{it}: Planning LLM failed: {e}")
@@ -901,10 +892,9 @@ class Orchestrator:
         goal: str,
         workdir: str,
         keep_artifacts: bool = True,
-        initial_proposal: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Run the Orchestrator loop with an initial proposal.
+        initial_proposal: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Run the Orchestrator loop with an initial proposal.
 
         This method allows starting the research with a pre-configured proposal,
         which is useful when the agent_orchestrator has already obtained an
@@ -918,27 +908,28 @@ class Orchestrator:
 
         Returns:
             A dict with details of the run, iterations and final decision.
+
         """
         # Run the orchestrator with the existing proposal
         return self.run(goal=goal, workdir=workdir, keep_artifacts=keep_artifacts, existing_proposal=initial_proposal)
 
 
-def _get_input_size_from_config(model_config: Dict[str, Any], evaluation_config: Optional[Dict[str, Any]] = None) -> tuple:
-    """
-    Extract the correct input size tuple from model configuration for sandbox testing.
-    
+def _get_input_size_from_config(model_config: dict[str, Any], evaluation_config: dict[str, Any] | None = None) -> tuple:
+    """Extract the correct input size tuple from model configuration for sandbox testing.
+
     Uses a prioritized approach:
     1. Extract from model_config input_shape (if available)
     2. Infer from dataset name in evaluation_config
     3. Fallback to CIFAR-10 format
-    
+
     Args:
         model_config: Dictionary containing model configuration with layers
         evaluation_config: Optional evaluation configuration with dataset_name
-        
+
     Returns:
         tuple: Input size tuple including batch dimension, e.g., (1, 3, 32, 32) for CIFAR-10
                or (1, 1, 28, 28) for MNIST
+
     """
     # Dataset-specific input sizes as primary fallback
     dataset_input_sizes = {
@@ -948,7 +939,7 @@ def _get_input_size_from_config(model_config: Dict[str, Any], evaluation_config:
         "cifar100": (1, 3, 32, 32),
         "imagenet": (1, 3, 224, 224),
     }
-    
+
     # 1. Try to extract from model_config first
     try:
         if isinstance(model_config, dict) and "layers" in model_config:
@@ -962,7 +953,7 @@ def _get_input_size_from_config(model_config: Dict[str, Any], evaluation_config:
                         result = (1, channels, height, width)
                         logger.debug(f"Extracted input shape from layer config: {result}")
                         return result
-            
+
             # Alternative: look for input_shape in the model_config directly
             input_shape = model_config.get("input_shape")
             if input_shape and isinstance(input_shape, (list, tuple)) and len(input_shape) >= 3:
@@ -972,7 +963,7 @@ def _get_input_size_from_config(model_config: Dict[str, Any], evaluation_config:
                 return result
     except Exception as e:
         logger.warning(f"Failed to extract input shape from model config: {e}")
-    
+
     # 2. Infer from dataset name if provided
     if evaluation_config and isinstance(evaluation_config, dict):
         dataset_name = evaluation_config.get("dataset_name", "").lower()
@@ -980,7 +971,7 @@ def _get_input_size_from_config(model_config: Dict[str, Any], evaluation_config:
             result = dataset_input_sizes[dataset_name]
             logger.debug(f"Inferred input size from dataset '{dataset_name}': {result}")
             return result
-    
+
     # 3. Fallback to CIFAR-10 format
     default_input_size = (1, 3, 32, 32)
     logger.debug(f"Using default input size: {default_input_size}")

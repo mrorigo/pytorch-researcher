@@ -1,5 +1,4 @@
-"""
-Version information for PyTorch ML Research Agent.
+"""Version information for PyTorch ML Research Agent.
 
 This module provides version information for the package.
 """
@@ -9,7 +8,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Tuple
 
 
 def _get_version_from_git() -> str | None:
@@ -67,8 +65,7 @@ def _get_version_from_file() -> str:
 
 
 def get_version() -> str:
-    """
-    Get the current version of the package.
+    """Get the current version of the package.
 
     Version priority:
     1. Environment variable PACKAGE_VERSION
@@ -95,15 +92,15 @@ __version__ = get_version()
 
 
 # Version components for programmatic access
-def version_info() -> Tuple[str, str, str]:
-    """
-    Get version information as a tuple.
+def version_info() -> tuple[str, str, str]:
+    """Get version information as a tuple.
 
     Returns:
         (version, build_type, build_info)
         - version: Semantic version string
         - build_type: 'release', 'dev', or 'unknown'
         - build_info: Additional build information
+
     """
     version = __version__
 
@@ -134,14 +131,14 @@ def is_development_version() -> bool:
 
 # Version compatibility
 def check_version_compatibility(min_version: str) -> bool:
-    """
-    Check if current version meets minimum version requirement.
+    """Check if current version meets minimum version requirement.
 
     Args:
         min_version: Minimum required version (e.g., "0.1.0")
 
     Returns:
         True if current version is compatible
+
     """
     try:
         current = tuple(map(int, __version__.split("+")[0].split(".")))

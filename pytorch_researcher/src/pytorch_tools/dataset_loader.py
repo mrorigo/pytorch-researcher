@@ -1,5 +1,4 @@
-"""
-Enhanced Dataset Loader for PyTorch ML Research Agent
+"""Enhanced Dataset Loader for PyTorch ML Research Agent
 
 This module provides robust dataset loading capabilities including:
 - Hugging Face Datasets integration with caching
@@ -15,11 +14,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import random
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -62,8 +60,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass
 class DatasetConfig:
-    """
-    Flexible configuration for dataset loading and preprocessing.
+    """Flexible configuration for dataset loading and preprocessing.
 
     This class provides a comprehensive configuration system for various types of
     datasets used in machine learning research, supporting both traditional and
@@ -109,15 +106,16 @@ class DatasetConfig:
         # Custom Arguments
         dataset_kwargs: Additional dataset-specific arguments
         custom_configs: Custom configuration dictionary
+
     """
 
     # Core dataset identification
     name: str = "cifar10"
-    subset: Optional[str] = None
+    subset: str | None = None
     split: str = "train"
 
     # Sampling and caching
-    subset_size: Optional[int] = None
+    subset_size: int | None = None
     cache_dir: str = "./data/cache"
     seed: int = 42
     offline_mode: bool = False
@@ -130,31 +128,31 @@ class DatasetConfig:
     pin_memory: bool = True
 
     # Data specifications
-    input_shape: Optional[Tuple[int, ...]] = None
-    target_shape: Optional[Tuple[int, ...]] = None
-    num_classes: Optional[int] = None
+    input_shape: tuple[int, ...] | None = None
+    target_shape: tuple[int, ...] | None = None
+    num_classes: int | None = None
 
     # Feature specifications
-    feature_columns: Optional[List[str]] = None
+    feature_columns: list[str] | None = None
     target_column: str = "label"
-    text_column: Optional[str] = None
-    image_column: Optional[str] = None
+    text_column: str | None = None
+    image_column: str | None = None
 
     # Preprocessing pipeline
-    transforms: List[str] = field(default_factory=lambda: ["basic"])
-    preprocessing_steps: Optional[List[str]] = None
-    augmentations: Optional[Dict[str, Any]] = None
-    normalization: Optional[Dict[str, Any]] = None
+    transforms: list[str] = field(default_factory=lambda: ["basic"])
+    preprocessing_steps: list[str] | None = None
+    augmentations: dict[str, Any] | None = None
+    normalization: dict[str, Any] | None = None
 
     # Advanced specifications
-    max_sequence_length: Optional[int] = None
-    image_size: Optional[Tuple[int, int]] = None
+    max_sequence_length: int | None = None
+    image_size: tuple[int, int] | None = None
     validation_split: float = 0.1
     test_split: float = 0.1
 
     # Custom configurations
-    dataset_kwargs: Dict[str, Any] = field(default_factory=dict)
-    custom_configs: Dict[str, Any] = field(default_factory=dict)
+    dataset_kwargs: dict[str, Any] = field(default_factory=dict)
+    custom_configs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Post-initialization processing and validation."""
@@ -276,7 +274,7 @@ class DatasetConfig:
         new_config["subset_size"] = new_subset_size
         return DatasetConfig(**new_config)
 
-    def get_transform_config(self) -> Dict[str, Any]:
+    def get_transform_config(self) -> dict[str, Any]:
         """Get transform configuration for dataset-specific preprocessing."""
         config = {
             "basic": self._get_basic_transforms(),
@@ -286,7 +284,7 @@ class DatasetConfig:
         }
         return config
 
-    def _get_basic_transforms(self) -> List:
+    def _get_basic_transforms(self) -> list:
         """Get basic transform pipeline."""
         if not TORCHVISION_AVAILABLE:
             return []
@@ -307,7 +305,7 @@ class DatasetConfig:
 
         return transforms_list
 
-    def _get_normalization_config(self) -> Optional[Dict[str, Any]]:
+    def _get_normalization_config(self) -> dict[str, Any] | None:
         """Get normalization configuration."""
         if self.normalization:
             return self.normalization
@@ -322,7 +320,7 @@ class DatasetConfig:
 
         return None
 
-    def _get_augmentation_config(self) -> Optional[Dict[str, Any]]:
+    def _get_augmentation_config(self) -> dict[str, Any] | None:
         """Get data augmentation configuration."""
         if self.augmentations:
             return self.augmentations
@@ -342,7 +340,7 @@ class DatasetConfig:
 
         return None
 
-    def _get_tokenization_config(self) -> Optional[Dict[str, Any]]:
+    def _get_tokenization_config(self) -> dict[str, Any] | None:
         """Get tokenization configuration for NLP datasets."""
         if not HF_DATASETS_AVAILABLE:
             return None
@@ -424,13 +422,13 @@ class FlexibleDatasetLoader:
             "synthetic": self._load_synthetic,
         }
 
-    def load_dataset(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
-        """
-        Load dataset with flexible configuration support.
+    def load_dataset(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
+        """Load dataset with flexible configuration support.
 
         Returns:
             Tuple of (train_dataset, val_dataset, test_dataset)
             where val_dataset and test_dataset may be None
+
         """
         if not TORCH_AVAILABLE:
             raise DatasetLoaderError("PyTorch is required for dataset loading.")
@@ -456,7 +454,7 @@ class FlexibleDatasetLoader:
         """Alias for load_dataset method."""
         return self.load_dataset()
 
-    def _load_cifar10(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_cifar10(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load CIFAR-10 dataset with flexible configuration."""
         if not TORCHVISION_AVAILABLE:
             raise DatasetLoaderError("torchvision is required for CIFAR-10.")
@@ -479,7 +477,7 @@ class FlexibleDatasetLoader:
 
         return self._apply_splits(train_dataset, test_dataset)
 
-    def _load_cifar100(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_cifar100(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load CIFAR-100 dataset with flexible configuration."""
         if not TORCHVISION_AVAILABLE:
             raise DatasetLoaderError("torchvision is required for CIFAR-100.")
@@ -502,7 +500,7 @@ class FlexibleDatasetLoader:
 
         return self._apply_splits(train_dataset, test_dataset)
 
-    def _load_mnist(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_mnist(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load MNIST dataset with flexible configuration."""
         if not TORCHVISION_AVAILABLE:
             raise DatasetLoaderError("torchvision is required for MNIST.")
@@ -527,7 +525,7 @@ class FlexibleDatasetLoader:
 
     def _load_fashion_mnist(
         self,
-    ) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    ) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load Fashion-MNIST dataset with flexible configuration."""
         if not TORCHVISION_AVAILABLE:
             raise DatasetLoaderError("torchvision is required for Fashion-MNIST.")
@@ -550,7 +548,7 @@ class FlexibleDatasetLoader:
 
         return self._apply_splits(train_dataset, test_dataset)
 
-    def _load_svhn(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_svhn(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load SVHN dataset with flexible configuration."""
         if not TORCHVISION_AVAILABLE:
             raise DatasetLoaderError("torchvision is required for SVHN.")
@@ -573,7 +571,7 @@ class FlexibleDatasetLoader:
 
         return self._apply_splits(train_dataset, test_dataset)
 
-    def _load_glue(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_glue(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load GLUE dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for GLUE.")
@@ -583,7 +581,7 @@ class FlexibleDatasetLoader:
 
         return self._process_hf_classification_dataset(dataset)
 
-    def _load_super_glue(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_super_glue(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load SuperGLUE dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for SuperGLUE.")
@@ -596,7 +594,7 @@ class FlexibleDatasetLoader:
         text_field = "passage" if subset == "boolq" else "text"
         return self._process_hf_classification_dataset(dataset, text_field=text_field)
 
-    def _load_imdb(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_imdb(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load IMDB dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for IMDB.")
@@ -604,7 +602,7 @@ class FlexibleDatasetLoader:
         dataset = load_dataset("imdb", cache_dir=str(self.cache_dir / "imdb"))
         return self._process_hf_classification_dataset(dataset)
 
-    def _load_sst2(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_sst2(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load SST-2 dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for SST-2.")
@@ -612,7 +610,7 @@ class FlexibleDatasetLoader:
         dataset = load_dataset("glue", "sst2", cache_dir=str(self.cache_dir / "sst2"))
         return self._process_hf_classification_dataset(dataset, text_field="sentence")
 
-    def _load_cola(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_cola(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load CoLA dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for CoLA.")
@@ -620,7 +618,7 @@ class FlexibleDatasetLoader:
         dataset = load_dataset("glue", "cola", cache_dir=str(self.cache_dir / "cola"))
         return self._process_hf_classification_dataset(dataset, text_field="sentence")
 
-    def _load_qnli(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_qnli(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load QNLI dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for QNLI.")
@@ -628,7 +626,7 @@ class FlexibleDatasetLoader:
         dataset = load_dataset("glue", "qnli", cache_dir=str(self.cache_dir / "qnli"))
         return self._process_hf_classification_dataset(dataset, text_field="question")
 
-    def _load_titanic(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_titanic(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load Titanic dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for Titanic.")
@@ -638,7 +636,7 @@ class FlexibleDatasetLoader:
             dataset, target_column="Survived"
         )
 
-    def _load_adult(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_adult(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load Adult dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets is required for Adult.")
@@ -646,7 +644,7 @@ class FlexibleDatasetLoader:
         dataset = load_dataset("adult", cache_dir=str(self.cache_dir / "adult"))
         return self._process_hf_classification_dataset(dataset, target_column="income")
 
-    def _load_credit(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_credit(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load Credit Card Fraud dataset with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError(
@@ -658,7 +656,7 @@ class FlexibleDatasetLoader:
         )
         return self._process_hf_classification_dataset(dataset, target_column="Class")
 
-    def _load_synthetic(self) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    def _load_synthetic(self) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load synthetic dataset for testing and rapid prototyping."""
         num_samples = self.config.subset_size or 1024
         input_shape = self.config.input_shape or (3, 32, 32)
@@ -666,7 +664,7 @@ class FlexibleDatasetLoader:
 
         class SyntheticDataset(Dataset):
             def __init__(
-                self, num_samples: int, input_shape: Tuple[int, ...], num_classes: int
+                self, num_samples: int, input_shape: tuple[int, ...], num_classes: int
             ):
                 self.num_samples = num_samples
                 self.input_shape = input_shape
@@ -690,7 +688,7 @@ class FlexibleDatasetLoader:
 
     def _load_hf_dataset(
         self, dataset_name: str
-    ) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+    ) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Load dataset from Hugging Face Hub with flexible configuration."""
         if not HF_DATASETS_AVAILABLE:
             raise DatasetLoaderError("Hugging Face datasets library is not available.")
@@ -723,17 +721,17 @@ class FlexibleDatasetLoader:
 
     def _process_hf_classification_dataset(
         self,
-        dataset: Dict[str, HFDataset],
-        text_field: Optional[str] = None,
-        target_column: Optional[str] = None,
-    ) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+        dataset: dict[str, HFDataset],
+        text_field: str | None = None,
+        target_column: str | None = None,
+    ) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Process Hugging Face classification dataset with flexible configuration."""
 
         class HFDatasetWrapper(Dataset):
             def __init__(
                 self,
                 hf_dataset: HFDataset,
-                text_field: Optional[str],
+                text_field: str | None,
                 target_column: str,
                 config: DatasetConfig,
             ):
@@ -820,18 +818,17 @@ class FlexibleDatasetLoader:
     def _apply_splits(
         self,
         train_dataset: Dataset,
-        val_dataset: Optional[Dataset] = None,
-        test_dataset: Optional[Dataset] = None,
-    ) -> Tuple[Dataset, Optional[Dataset], Optional[Dataset]]:
+        val_dataset: Dataset | None = None,
+        test_dataset: Dataset | None = None,
+    ) -> tuple[Dataset, Dataset | None, Dataset | None]:
         """Apply subset size and create additional splits if needed."""
-
         # Apply subset size to training data
         if self.config.subset_size and len(train_dataset) > self.config.subset_size:
             random.seed(self.config.seed)
             indices = random.sample(range(len(train_dataset)), self.config.subset_size)
 
             class SubsetDataset(Dataset):
-                def __init__(self, dataset: Dataset, indices: List[int]):
+                def __init__(self, dataset: Dataset, indices: list[int]):
                     self.dataset = dataset
                     self.indices = indices
 
@@ -896,8 +893,8 @@ class FlexibleDatasetLoader:
     def create_dataloader(
         self,
         dataset: Dataset,
-        shuffle: Optional[bool] = None,
-        drop_last: Optional[bool] = None,
+        shuffle: bool | None = None,
+        drop_last: bool | None = None,
     ) -> DataLoader:
         """Create DataLoader with flexible configuration."""
         if not TORCH_AVAILABLE:
@@ -917,7 +914,7 @@ class FlexibleDatasetLoader:
 
         return dataloader
 
-    def get_dataset_info(self) -> Dict[str, Any]:
+    def get_dataset_info(self) -> dict[str, Any]:
         """Get comprehensive information about the configured dataset."""
         return {
             "name": self.config.name,
@@ -938,15 +935,14 @@ class FlexibleDatasetLoader:
 def create_flexible_dataset_config(
     dataset_name: str,
     *,
-    subset_size: Optional[int] = None,
+    subset_size: int | None = None,
     batch_size: int = 64,
-    transforms: Optional[List[str]] = None,
-    input_shape: Optional[Tuple[int, ...]] = None,
-    num_classes: Optional[int] = None,
+    transforms: list[str] | None = None,
+    input_shape: tuple[int, ...] | None = None,
+    num_classes: int | None = None,
     **kwargs,
 ) -> DatasetConfig:
-    """
-    Create a flexible dataset configuration with sensible defaults.
+    """Create a flexible dataset configuration with sensible defaults.
 
     Args:
         dataset_name: Name of the dataset
@@ -959,6 +955,7 @@ def create_flexible_dataset_config(
 
     Returns:
         DatasetConfig instance with automatic configuration
+
     """
     config_params = {
         "name": dataset_name,
@@ -980,7 +977,7 @@ def get_flexible_dataset_loader(config: DatasetConfig) -> FlexibleDatasetLoader:
     return FlexibleDatasetLoader(config)
 
 
-def list_supported_datasets() -> List[str]:
+def list_supported_datasets() -> list[str]:
     """List all supported dataset names."""
     return [
         # Computer Vision
@@ -1021,8 +1018,8 @@ DatasetLoaderError = DatasetLoaderError
 
 __all__ = [
     "DatasetConfig",
-    "FlexibleDatasetLoader",
     "DatasetLoaderError",
+    "FlexibleDatasetLoader",
     "create_flexible_dataset_config",
     "get_flexible_dataset_loader",
     "list_supported_datasets",
@@ -1072,7 +1069,7 @@ if __name__ == "__main__":
         loader = get_flexible_dataset_loader(config)
         train_ds, val_ds, test_ds = loader.load_dataset()
 
-        print(f"✓ Dataset loaded successfully")
+        print("✓ Dataset loaded successfully")
         print(f"  Training samples: {len(train_ds)}")
         if val_ds:
             print(f"  Validation samples: {len(val_ds)}")

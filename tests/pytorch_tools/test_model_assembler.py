@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -105,7 +104,7 @@ def test_deterministic_first_strategy_simple_config(tmp_path):
 
     out_path = tmp_path / "simple_cnn.py"
     result = assemble_from_config(simple_config, str(out_path), use_llm=True)
-    
+
     assert result["path"] == str(out_path)
     assert result["via"] == "deterministic"
     assert "class SimpleCNN" in result["source"]
@@ -133,14 +132,14 @@ def test_deterministic_first_complex_config_uses_llm_fallback(tmp_path):
     }
 
     out_path = tmp_path / "complex_model.py"
-    
+
     # Since no LLM client is configured, expect LLM client error
     with pytest.raises(Exception) as exc_info:
         assemble_from_config(complex_config, str(out_path), use_llm=True)
-    
+
     # Should fail with generic error since both deterministic and LLM failed
     assert "Both deterministic and LLM assembly failed" in str(exc_info.value)
-    
+
     # File should not exist since assembly failed completely
     assert not out_path.exists()
 
@@ -149,10 +148,12 @@ def test_complexity_heuristic_classification():
     """
     Test the config complexity heuristic directly.
     """
-    from pytorch_researcher.src.pytorch_tools.model_assembler_llm import LLMModelAssembler
-    
+    from pytorch_researcher.src.pytorch_tools.model_assembler_llm import (
+        LLMModelAssembler,
+    )
+
     assembler = LLMModelAssembler()
-    
+
     # Simple config should be deterministic-friendly
     simple = {
         "input_shape": (3, 32, 32),

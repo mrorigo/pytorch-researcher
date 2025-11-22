@@ -1,6 +1,5 @@
 # pytorch-researcher/pytorch_researcher/src/pytorch_tools/model_assembler.py
-"""
-Minimal `pytorch_model_assembler` skeleton.
+"""Minimal `pytorch_model_assembler` skeleton.
 
 This module provides a small, testable implementation of a PyTorch model assembler
 that can generate a Python source string implementing a torch.nn.Module class
@@ -46,15 +45,14 @@ import dataclasses
 import logging
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 log = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
 class ModelConfig:
-    """
-    Structured configuration describing a simple PyTorch model.
+    """Structured configuration describing a simple PyTorch model.
 
     Attributes:
         class_name: Name of the generated nn.Module subclass.
@@ -62,12 +60,13 @@ class ModelConfig:
         layers: Ordered list of layer descriptions. Each layer is a dict with a
             required 'type' key and optional parameters depending on the layer.
         docstring: Optional module/class docstring to include in generated code.
+
     """
 
     class_name: str
-    input_shape: Optional[tuple] = None
-    layers: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    docstring: Optional[str] = None
+    input_shape: tuple | None = None
+    layers: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    docstring: str | None = None
 
 
 class ModelAssemblerError(Exception):
@@ -107,10 +106,9 @@ def _format_param_value(v: Any) -> str:
 
 
 def _layer_init_snippet(
-    name: str, layer: Dict[str, Any], idx: int, prev_channels: Optional[int]
+    name: str, layer: dict[str, Any], idx: int, prev_channels: int | None
 ) -> str:
-    """
-    Construct a line of code for __init__ assigning a layer to self.<name>.
+    """Construct a line of code for __init__ assigning a layer to self.<name>.
 
     Returns code string and the new channel count (if applicable).
     """
@@ -241,8 +239,7 @@ def _layer_init_snippet(
 
 
 def assemble_model_code(cfg: ModelConfig) -> str:
-    """
-    Assemble Python source code for a PyTorch `nn.Module` from a ModelConfig.
+    """Assemble Python source code for a PyTorch `nn.Module` from a ModelConfig.
 
     The generated code imports torch/nn, defines a Module subclass named
     cfg.class_name, implements a minimal __init__ registering layers and a
@@ -256,13 +253,14 @@ def assemble_model_code(cfg: ModelConfig) -> str:
 
     Returns:
         A string containing the Python module source code.
+
     """
     if not cfg.class_name.isidentifier():
         raise ModelAssemblerError(
             f"class_name {cfg.class_name!r} is not a valid Python identifier"
         )
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("import torch")
     lines.append("import torch.nn as nn")
     lines.append("")
@@ -273,17 +271,17 @@ def assemble_model_code(cfg: ModelConfig) -> str:
 
     lines.append(f"class {cfg.class_name}(nn.Module):")
     if doc:
-        lines.append(f'    """')
+        lines.append('    """')
         for l in cfg.docstring.splitlines():
             lines.append(f"    {l}")
-        lines.append(f'    """')
+        lines.append('    """')
     lines.append("    def __init__(self):")
     lines.append("        super().__init__()")
 
     # Build __init__ layer registrations
     prev_channels = None
-    init_lines: List[str] = []
-    forward_lines: List[str] = []
+    init_lines: list[str] = []
+    forward_lines: list[str] = []
     forward_lines.append("        x = input")
     for idx, layer in enumerate(cfg.layers):
         lname = f"layer_{idx}"
@@ -329,8 +327,7 @@ def assemble_model_code(cfg: ModelConfig) -> str:
 
 
 def save_model_code(path: str | Path, code: str, overwrite: bool = True) -> Path:
-    """
-    Save generated model source string to a file.
+    """Save generated model source string to a file.
 
     Args:
         path: Destination file path (will be created if necessary).
@@ -339,6 +336,7 @@ def save_model_code(path: str | Path, code: str, overwrite: bool = True) -> Path
 
     Returns:
         The path that was written as a pathlib.Path.
+
     """
     p = Path(path)
     if p.exists() and not overwrite:
@@ -349,8 +347,8 @@ def save_model_code(path: str | Path, code: str, overwrite: bool = True) -> Path
 
 
 __all__ = [
+    "ModelAssemblerError",
     "ModelConfig",
     "assemble_model_code",
     "save_model_code",
-    "ModelAssemblerError",
 ]

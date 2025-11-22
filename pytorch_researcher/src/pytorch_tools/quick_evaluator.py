@@ -1,5 +1,4 @@
-"""
-Enhanced Quick Evaluator for PyTorch ML Research Agent
+"""Enhanced Quick Evaluator for PyTorch ML Research Agent
 
 This module provides robust evaluation capabilities including:
 - Multi-seed evaluation for statistical significance
@@ -18,7 +17,7 @@ import statistics
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -99,20 +98,9 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-# Optional matplotlib import for visualization
-try:
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
-
     # Simple fallback implementations
     def f1_score(y_true, y_pred, average="macro"):
         """Simple fallback F1 score implementation."""
-        from collections import Counter
-
         import numpy as np
 
         if average == "macro":
@@ -226,8 +214,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass
 class QuickEvalConfig:
-    """
-    Enhanced configuration for quick evaluation runs.
+    """Enhanced configuration for quick evaluation runs.
 
     Attributes:
         dataset_name: Name of dataset to use (e.g., 'cifar10', 'mnist', 'imdb').
@@ -259,12 +246,13 @@ class QuickEvalConfig:
         detailed_report: bool = False
         save_confusion_matrix_plot: bool = False
         export_learning_curves: bool = False
+
     """
 
     # Dataset configuration
     dataset_name: str = "cifar10"
-    dataset_config: Optional[DatasetConfig] = None
-    subset_size: Optional[int] = 2048
+    dataset_config: DatasetConfig | None = None
+    subset_size: int | None = 2048
 
     # Training configuration
     batch_size: int = 64
@@ -276,13 +264,13 @@ class QuickEvalConfig:
     # System configuration
     device: str = "cpu"
     num_workers: int = 0
-    save_metrics_path: Optional[str] = None
+    save_metrics_path: str | None = None
     verbose: bool = False
 
     # Basic options
     early_stopping_patience: int = 0
     target_accuracy: float = 0.7
-    metrics_to_track: List[str] = field(default_factory=lambda: ["accuracy", "loss"])
+    metrics_to_track: list[str] = field(default_factory=lambda: ["accuracy", "loss"])
     evaluation_strategy: str = "epoch"  # 'epoch' or 'end'
     deterministic: bool = True
 
@@ -299,7 +287,7 @@ class QuickEvalConfig:
     export_learning_curves: bool = False
 
     # Dataset-specific arguments
-    dataset_kwargs: Dict[str, Any] = field(default_factory=dict)
+    dataset_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 class QuickEvaluatorError(Exception):
@@ -307,8 +295,7 @@ class QuickEvaluatorError(Exception):
 
 
 class EnhancedQuickEvaluator:
-    """
-    Enhanced evaluator with multi-seed support and robust dataset integration.
+    """Enhanced evaluator with multi-seed support and robust dataset integration.
     """
 
     def __init__(self, cfg: QuickEvalConfig):
@@ -384,7 +371,7 @@ class EnhancedQuickEvaluator:
 
     def _train_one_epoch(
         self, model: nn.Module, dataloader: DataLoader, optimizer, criterion
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Train model for one epoch."""
         model.train()
         running_loss = 0.0
@@ -414,7 +401,7 @@ class EnhancedQuickEvaluator:
 
     def _evaluate(
         self, model: nn.Module, dataloader: DataLoader, criterion
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Evaluate model on dataset."""
         model.eval()
         running_loss = 0.0
@@ -438,7 +425,7 @@ class EnhancedQuickEvaluator:
 
         return {"val_loss": avg_loss, "val_accuracy": accuracy, "samples": total}
 
-    def _infer_num_classes(self, model: nn.Module) -> Optional[int]:
+    def _infer_num_classes(self, model: nn.Module) -> int | None:
         """Infer number of classes from model output."""
         try:
             # Default input shape for inference
@@ -463,7 +450,7 @@ class EnhancedQuickEvaluator:
 
         return None
 
-    def _prepare_dataset_fallback(self) -> Tuple[Dataset, Optional[Dataset]]:
+    def _prepare_dataset_fallback(self) -> tuple[Dataset, Dataset | None]:
         """Fallback dataset preparation using original logic."""
         if not TORCH_AVAILABLE:
             raise QuickEvaluatorError(
@@ -564,8 +551,8 @@ class EnhancedQuickEvaluator:
         )
 
     def _run_single_seed_evaluation(
-        self, model: nn.Module, seed: int, model_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, model: nn.Module, seed: int, model_name: str | None = None
+    ) -> dict[str, Any]:
         """Run evaluation for a single seed."""
         # Set seed for this evaluation
         self._seed_everything(seed)
@@ -708,10 +695,9 @@ class EnhancedQuickEvaluator:
         return result
 
     def quick_evaluate(
-        self, model: nn.Module, model_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Perform enhanced quick evaluation with multi-seed support.
+        self, model: nn.Module, model_name: str | None = None
+    ) -> dict[str, Any]:
+        """Perform enhanced quick evaluation with multi-seed support.
 
         Returns a dictionary with:
             - 'config': serialized QuickEvalConfig
@@ -809,7 +795,7 @@ class EnhancedQuickEvaluator:
 
     def _collect_predictions_and_targets(
         self, model: nn.Module, dataloader: DataLoader
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
         """Collect all predictions and targets for metric computation."""
         model.eval()
         all_predictions = []
@@ -835,7 +821,7 @@ class EnhancedQuickEvaluator:
             np.array(all_probabilities) if self.cfg.compute_auc_scores else None,
         )
 
-    def _aggregate_results(self, seed_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _aggregate_results(self, seed_results: list[dict[str, Any]]) -> dict[str, Any]:
         """Aggregate results across multiple seeds."""
         if not seed_results:
             return {}
@@ -907,9 +893,8 @@ class EnhancedQuickEvaluator:
 
     def _compute_classification_metrics(
         self, all_predictions: np.ndarray, all_targets: np.ndarray
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute comprehensive classification metrics."""
-
         metrics = {}
 
         # Convert to lists for sklearn compatibility
@@ -945,9 +930,8 @@ class EnhancedQuickEvaluator:
 
     def _compute_auc_metrics(
         self, all_probabilities: np.ndarray, all_targets: np.ndarray
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute comprehensive AUC-based metrics including ROC-AUC and PR-AUC."""
-
         if not self.cfg.compute_auc_scores:
             return {}
 
@@ -1006,7 +990,7 @@ class EnhancedQuickEvaluator:
 
         except Exception as e:
             _logger.warning(f"Failed to compute AUC metrics: {e}")
-            _logger.warning(f"Error details: {type(e).__name__}: {str(e)}")
+            _logger.warning(f"Error details: {type(e).__name__}: {e!s}")
             import traceback
 
             _logger.warning(f"Traceback: {traceback.format_exc()}")
@@ -1015,7 +999,7 @@ class EnhancedQuickEvaluator:
 
     def _compute_per_class_roc_auc(
         self, all_probabilities: np.ndarray, all_targets: np.ndarray
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute per-class ROC AUC scores and ROC curve data."""
         # Check sklearn availability at module level
         import pytorch_tools.quick_evaluator as qe_module
@@ -1053,7 +1037,7 @@ class EnhancedQuickEvaluator:
 
     def _analyze_confusion_patterns(
         self, cm: np.ndarray, classes: np.ndarray
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Analyze confusion patterns in the confusion matrix."""
         try:
             # Find most confused class pairs
@@ -1105,10 +1089,10 @@ class EnhancedQuickEvaluator:
 
     def _compute_class_insights(
         self,
-        per_class_metrics: Dict,
+        per_class_metrics: dict,
         class_distribution: np.ndarray,
         total_samples: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute insights about class performance and distribution."""
         try:
             insights = {
@@ -1175,10 +1159,9 @@ class EnhancedQuickEvaluator:
         self,
         all_predictions: np.ndarray,
         all_targets: np.ndarray,
-        class_names: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        class_names: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Compute detailed per-class performance analysis."""
-
         if not self.cfg.compute_per_class_metrics:
             return {}
 
@@ -1281,19 +1264,16 @@ class EnhancedQuickEvaluator:
 
     def _plot_confusion_matrix(
         self,
-        confusion_matrix_data: Dict[str, Any],
-        save_path: Optional[str] = None,
+        confusion_matrix_data: dict[str, Any],
+        save_path: str | None = None,
         title: str = "Confusion Matrix",
-    ) -> Optional[str]:
+    ) -> str | None:
         """Create and optionally save confusion matrix visualization."""
         if not MATPLOTLIB_AVAILABLE:
             _logger.warning("Matplotlib not available for visualization")
             return None
 
         try:
-            import matplotlib.pyplot as plt
-            import seaborn as sns
-
             cm = np.array(confusion_matrix_data["confusion_matrix"])
             class_names = confusion_matrix_data.get(
                 "class_names", [f"Class_{i}" for i in range(cm.shape[0])]
@@ -1343,7 +1323,7 @@ class EnhancedQuickEvaluator:
 
     def _collect_predictions_and_targets(
         self, model: nn.Module, dataloader: DataLoader
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
         """Collect all predictions and targets for metric computation."""
         model.eval()
         all_predictions = []
@@ -1371,7 +1351,7 @@ class EnhancedQuickEvaluator:
 
     def _enhanced_evaluate(
         self, model: nn.Module, dataloader: DataLoader, criterion
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Enhanced evaluation with comprehensive metrics."""
         # Get basic metrics first
         basic_metrics = self._evaluate(model, dataloader, criterion)
@@ -1410,7 +1390,7 @@ class EnhancedQuickEvaluator:
         val_loader: DataLoader,
         optimizer,
         num_epochs: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Track learning dynamics during training with advanced analysis."""
         if not self.cfg.track_learning_curves:
             return {}
@@ -1482,7 +1462,7 @@ class EnhancedQuickEvaluator:
 
         return learning_dynamics
 
-    def _analyze_overfitting(self, learning_dynamics: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_overfitting(self, learning_dynamics: dict[str, Any]) -> dict[str, Any]:
         """Analyze overfitting patterns in training curves."""
         try:
             train_loss = learning_dynamics["train_loss"]
@@ -1575,7 +1555,7 @@ class EnhancedQuickEvaluator:
             _logger.warning(f"Failed to analyze overfitting: {e}")
             return {"overfitting_detected": False, "error": str(e)}
 
-    def _analyze_convergence(self, learning_dynamics: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_convergence(self, learning_dynamics: dict[str, Any]) -> dict[str, Any]:
         """Analyze convergence patterns in training."""
         try:
             val_loss = learning_dynamics["val_loss"]
@@ -1683,10 +1663,10 @@ class EnhancedQuickEvaluator:
 
     def _generate_training_insights(
         self,
-        learning_dynamics: Dict[str, Any],
-        overfitting_analysis: Dict[str, Any],
-        convergence_analysis: Dict[str, Any],
-    ) -> List[str]:
+        learning_dynamics: dict[str, Any],
+        overfitting_analysis: dict[str, Any],
+        convergence_analysis: dict[str, Any],
+    ) -> list[str]:
         """Generate comprehensive training insights and recommendations."""
         insights = []
 
@@ -1792,14 +1772,14 @@ QuickEvaluator = EnhancedQuickEvaluator
 
 
 def quick_evaluate_once(
-    model: nn.Module, cfg: Optional[QuickEvalConfig] = None
-) -> Dict[str, Any]:
-    """
-    Enhanced convenience function for one-shot quick evaluation.
+    model: nn.Module, cfg: QuickEvalConfig | None = None
+) -> dict[str, Any]:
+    """Enhanced convenience function for one-shot quick evaluation.
 
     Example:
         cfg = QuickEvalConfig(epochs=1, subset_size=512, num_seeds=3)
         res = quick_evaluate_once(my_model, cfg)
+
     """
     cfg = cfg or QuickEvalConfig()
     ev = EnhancedQuickEvaluator(cfg)
@@ -1808,8 +1788,8 @@ def quick_evaluate_once(
 
 # Legacy compatibility function
 def quick_evaluate_legacy(
-    model: nn.Module, cfg: Optional[QuickEvalConfig] = None
-) -> Dict[str, Any]:
+    model: nn.Module, cfg: QuickEvalConfig | None = None
+) -> dict[str, Any]:
     """Legacy compatibility function with single-seed evaluation."""
     cfg = cfg or QuickEvalConfig()
     cfg.num_seeds = 1  # Force single seed for backward compatibility

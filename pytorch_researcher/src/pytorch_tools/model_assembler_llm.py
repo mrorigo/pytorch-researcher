@@ -1,6 +1,5 @@
 # pytorch-researcher/pytorch_researcher/src/pytorch_tools/model_assembler_llm.py
-"""
-Minimal HTTP-only LLM-backed PyTorch Model Assembler (MVP)
+"""Minimal HTTP-only LLM-backed PyTorch Model Assembler (MVP)
 
 This simplified module provides a basic LLM integration that ONLY uses direct
 HTTP POST requests to a `<base_url>/chat/completions` endpoint (useful for
@@ -27,24 +26,24 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # LLM client abstractions (factored out for DRYness and easier testing)
 from pytorch_researcher.src.pytorch_tools.llm import (
     BaseLLMClient,
-    DisabledLLMClient,
     LiteLLMClient,
-    LLMClientError,
 )
 
 logger = logging.getLogger(__name__)
 
 # Import the programmatic assembler (always available in this package)
 from pytorch_researcher.src.pytorch_tools.model_assembler import (
+    ModelAssemblerError as _ModelAssemblerError,
+)
+from pytorch_researcher.src.pytorch_tools.model_assembler import (
     ModelConfig,
     assemble_model_code,
     save_model_code,
-    ModelAssemblerError as _ModelAssemblerError,
 )
 
 # Re-export for compatibility
@@ -61,8 +60,7 @@ class LLMModelAssemblerError(Exception):
 
 
 class LLMModelAssembler:
-    """
-    Minimal HTTP-only LLM assembler.
+    """Minimal HTTP-only LLM assembler.
 
     Parameters
     ----------
@@ -78,17 +76,18 @@ class LLMModelAssembler:
         Base backoff seconds used for exponential backoff between retries.
     prompt_template: Optional[str]
         Template used to ask the LLM to produce a structured JSON response.
+
     """
 
     def __init__(
         self,
         model_name: str = "gpt-5.1-mini",
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
         max_retries: int = 2,
         retry_backoff: float = 1.0,
-        prompt_template: Optional[str] = None,
-        llm_client: Optional[BaseLLMClient] = None,
+        prompt_template: str | None = None,
+        llm_client: BaseLLMClient | None = None,
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") if base_url else None
@@ -126,9 +125,8 @@ class LLMModelAssembler:
 
     def _call_llm(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
-    ) -> Dict[str, Any]:
-        """
-        Delegate LLM calls to the injected LLM client.
+    ) -> dict[str, Any]:
+        """Delegate LLM calls to the injected LLM client.
 
         This method is intentionally thin: it expects `self.llm_client` to be set
         (either via constructor injection or by constructing a default HTTP client).
@@ -147,9 +145,8 @@ class LLMModelAssembler:
         except Exception as exc:
             raise LLMModelAssemblerError(f"LLM client error: {exc}") from exc
 
-    def _extract_code_from_response(self, raw_response: Dict[str, Any]) -> str:
-        """
-        Extract Python source code from the LLM response.
+    def _extract_code_from_response(self, raw_response: dict[str, Any]) -> str:
+        """Extract Python source code from the LLM response.
 
         Strategy:
         - Look for typical 'choices' -> first -> 'message' -> 'content' shapes.
@@ -159,7 +156,7 @@ class LLMModelAssembler:
         - Handle double JSON nesting (content containing JSON with python key).
         """
         raw = raw_response.get("raw")
-        text: Optional[str] = None
+        text: str | None = None
 
         # Common json shape: { "choices": [ { "message": { "content": "..." } } ] }
         try:
@@ -202,7 +199,7 @@ class LLMModelAssembler:
             logger.debug("Found markdown fence, extracting content")
             fenced_content = fence_match.group(1).strip()
             logger.debug(f"Fenced content (length {len(fenced_content)}): {fenced_content[:500]!r}...")
-            
+
             # Check if fenced content is JSON
             if fenced_content.strip().startswith('{'):
                 try:
@@ -210,7 +207,7 @@ class LLMModelAssembler:
                     logger.debug("Attempting to parse fenced content as JSON")
                     parsed = json.loads(fenced_content)
                     logger.debug(f"Successfully parsed fenced JSON: {list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)}")
-                    
+
                     if isinstance(parsed, dict):
                         # Look for code keys in the parsed JSON
                         for key in ("python", "python_code", "code", "source"):
@@ -224,12 +221,12 @@ class LLMModelAssembler:
                                 if '\\n' in code_candidate:
                                     logger.debug("Handling escaped newlines in fenced code")
                                     code_candidate = code_candidate.replace('\\n', '\n')
-                                
+
                                 logger.debug(f"Extracted Python code from fenced JSON key '{key}'")
                                 return code_candidate
-                        
+
                         logger.debug(f"Fenced JSON parsed but no code key found. Available keys: {list(parsed.keys())}")
-                        
+
                 except Exception as json_exc:
                     logger.debug(f"Failed to parse fenced content as JSON: {json_exc}")
                     # If fenced content is not JSON, treat it as direct code
@@ -244,11 +241,11 @@ class LLMModelAssembler:
         try:
             logger.debug(f"Attempting to parse JSON from text (length {len(text)})")
             logger.debug(f"Text preview: {text[:500]!r}...")
-            
+
             # Parse JSON without modifying escaped characters
             parsed = json.loads(text)
             logger.debug(f"Successfully parsed JSON: {list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)}")
-                
+
             if isinstance(parsed, dict):
                 # First, try to find direct code keys
                 for key in ("python", "python_code", "code", "source"):
@@ -262,10 +259,10 @@ class LLMModelAssembler:
                         if '\\n' in code_candidate:
                             logger.debug("Handling escaped newlines in extracted code")
                             code_candidate = code_candidate.replace('\\n', '\n')
-                        
+
                         logger.debug(f"Extracted Python code from JSON key '{key}'")
                         return code_candidate
-                
+
                 # Check if we have a content/body key that might contain more JSON
                 for key in ("content", "body"):
                     if (
@@ -275,14 +272,14 @@ class LLMModelAssembler:
                     ):
                         extracted = parsed[key].strip()
                         logger.debug(f"Found content in key '{key}', attempting to parse as JSON")
-                        
+
                         # Check if this extracted content looks like JSON (starts with {)
                         if extracted.strip().startswith('{'):
                             try:
                                 # Try to parse the content as JSON to handle nested JSON
                                 nested_parsed = json.loads(extracted)
                                 logger.debug(f"Successfully parsed nested JSON, keys: {list(nested_parsed.keys()) if isinstance(nested_parsed, dict) else type(nested_parsed)}")
-                                
+
                                 if isinstance(nested_parsed, dict):
                                     # Look for code keys in the nested JSON
                                     for nested_key in ("python", "python_code", "code", "source"):
@@ -295,28 +292,28 @@ class LLMModelAssembler:
                                             if '\\n' in code_candidate:
                                                 logger.debug("Handling escaped newlines in nested code")
                                                 code_candidate = code_candidate.replace('\\n', '\n')
-                                            
+
                                             logger.debug(f"Extracted Python code from nested JSON key '{nested_key}'")
                                             return code_candidate
                             except Exception as nested_json_exc:
                                 logger.debug(f"Failed to parse nested JSON: {nested_json_exc}")
                                 # Fall back to treating the content as direct code
                                 pass
-                        
+
                         # Handle escaped newlines in fallback content
                         if '\\n' in extracted:
                             extracted = extracted.replace('\\n', '\n')
-                        
+
                         logger.debug(f"Extracted Python code from JSON key '{key}' (direct)")
                         return extracted
-                        
+
                 # If we have a parsed dict but no code key, we might have returned the wrong thing
                 logger.debug(f"JSON parsed but no code key found. Available keys: {list(parsed.keys())}")
                 # Check if the parsed dict itself is the code (malformed JSON)
                 if len(parsed) == 1 and 'python' in str(parsed):
                     # Maybe the whole JSON was returned as the code instead of proper format
                     return str(parsed)
-                    
+
         except Exception as json_exc:
             logger.debug(f"JSON parsing failed: {json_exc}")
             logger.debug(f"Failed text was: {text[:1000]!r}...")
@@ -327,22 +324,21 @@ class LLMModelAssembler:
         mf = _CODE_FENCE_RE.search(text)
         if mf:
             extracted_code = mf.group("code").strip()
-            logger.debug(f"Extracted Python code from fenced block (second pass)")
+            logger.debug("Extracted Python code from fenced block (second pass)")
             return extracted_code
 
         # FOURTH: Heuristic: check for python indicators
         py_indicators = ("import ", "def ", "class ", "torch", "nn.Module", "return ")
         if any(tok in text for tok in py_indicators):
-            logger.debug(f"Extracted Python code using heuristic detection")
+            logger.debug("Extracted Python code using heuristic detection")
             return text
 
         # Last resort: return full text
-        logger.debug(f"Using last resort - returning full text as code")
+        logger.debug("Using last resort - returning full text as code")
         return text
 
     def _validate_source(self, src: str) -> None:
-        """
-        Validate that the source is syntactically valid Python and contains at least one class def.
+        """Validate that the source is syntactically valid Python and contains at least one class def.
         """
         try:
             tree = ast.parse(src)
@@ -357,26 +353,26 @@ class LLMModelAssembler:
                 "Generated source does not contain a class definition."
             )
 
-    def is_deterministic_friendly(self, config: Dict[str, Any]) -> bool:
+    def is_deterministic_friendly(self, config: dict[str, Any]) -> bool:
         """Heuristic to determine if config should use deterministic assembler."""
         simple_layers = {
             "Conv2d", "Linear", "ReLU", "LeakyReLU", "MaxPool2d",
             "AvgPool2d", "BatchNorm2d", "Dropout", "Flatten"
         }
-        
+
         if not isinstance(config.get("layers"), list):
             return False
-            
+
         # Check layer types and config simplicity
         num_layers = len(config["layers"])
         has_unsupported = False
-        
+
         for layer in config["layers"]:
             layer_type = layer.get("type")
             if layer_type not in simple_layers:
                 has_unsupported = True
                 break
-        
+
         # Use deterministic if: supported layers only + reasonable size + explicit shape hints
         return (
             not has_unsupported and
@@ -387,18 +383,17 @@ class LLMModelAssembler:
 
     def assemble_from_config(
         self,
-        model_config: Dict[str, Any],
+        model_config: dict[str, Any],
         output_path: str,
         use_llm: bool = True,
         temperature: float = 0.0,
-        prompt_addendum: Optional[str] = None,
+        prompt_addendum: str | None = None,
         max_llm_retries: int = 3,
-        sandbox_error: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate model source from model_config, write to output_path.
+        sandbox_error: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate model source from model_config, write to output_path.
         Returns a dict describing the result.
-        
+
         Args:
             model_config: Configuration dict for the model
             output_path: Path where to save the generated model
@@ -407,6 +402,7 @@ class LLMModelAssembler:
             prompt_addendum: Additional prompt instructions
             max_llm_retries: Number of retry attempts for LLM generation
             sandbox_error: Optional error message from sandbox execution for intelligent retry
+
         """
         out_path = str(Path(output_path).resolve())
 
@@ -417,13 +413,13 @@ class LLMModelAssembler:
 
         # 💰 DETERMINISTIC-FIRST STRATEGY with complexity heuristic
         logger.info("🔄 Model assembly: Starting with deterministic-first strategy")
-        
+
         # Complexity heuristic: use deterministic for simple, supported layer configs
-        
+
         should_use_deterministic = self.is_deterministic_friendly(model_config)
         logger.info("📊 Config complexity: %d layers, deterministic_friendly=%s",
                    len(model_config.get("layers", [])), should_use_deterministic)
-        
+
         if should_use_deterministic:
             # Use deterministic path for simple configs
             try:
@@ -455,69 +451,69 @@ class LLMModelAssembler:
                     "llm_response": None,
                     "attempts": 0,
                 }
-                
+
             except Exception as det_exc:
                 logger.info("⚠️ Deterministic assembly failed (%s), falling back to LLM", det_exc)
-        
+
         # If deterministic fails or config is not deterministic-friendly, use LLM
         logger.info("🤖 Falling back to LLM generation (max %d retries)", max_llm_retries)
-        
+
         if not use_llm:
             raise LLMModelAssemblerError("Deterministic failed and use_llm=False")
-            
+
         for attempt in range(max_llm_retries):
             try:
                 # Build prompt
                 prompt = self.prompt_template.replace("{model_config}", config_json)
-                
+
                 # Add error feedback on retry attempts
                 if attempt > 0:
                     if sandbox_error:
                         # Add intelligent sandbox error feedback
                         prompt += f"\n\nCRITICAL: Previous generation failed during sandbox execution with this error:\n{sandbox_error}\n\nPlease fix the runtime issues in your code. Ensure tensor shapes match, input dimensions are correct, and PyTorch operations are valid."
                     else:
-                        prompt += f"\n\nIMPORTANT: Previous attempt failed. Please be more careful about JSON formatting and syntax validity."
-                
+                        prompt += "\n\nIMPORTANT: Previous attempt failed. Please be more careful about JSON formatting and syntax validity."
+
                 if prompt_addendum:
                     prompt = prompt + "\n\n" + prompt_addendum
 
                 logger.info(f"🤖 LLM ASSEMBLER ATTEMPT {attempt + 1}/{max_llm_retries}")
                 logger.info(f"📋 Model config length: {len(config_json)} chars")
                 logger.info(f"📝 Prompt length: {len(prompt)} chars")
-                
+
                 # Call LLM with comprehensive logging
                 start_time = time.time()
                 raw = self._call_llm(prompt, temperature=temperature, timeout=300)
                 llm_duration = time.time() - start_time
-                
+
                 logger.info(f"⏱️ LLM call duration: {llm_duration:.2f}s")
                 logger.info(f"📦 Raw LLM response type: {type(raw).__name__}")
-                
+
                 # Extract code with detailed logging
-                logger.info(f"🔍 Extracting code from LLM response...")
+                logger.info("🔍 Extracting code from LLM response...")
                 code = self._extract_code_from_response(raw)
-                
-                logger.info(f"✅ Code extracted successfully")
+
+                logger.info("✅ Code extracted successfully")
                 logger.info(f"📏 Extracted code length: {len(code)} chars")
                 logger.info(f"🔍 Code preview: {code[:200]!r}{'...' if len(code) > 200 else ''}")
-                
+
                 # Validate the generated code with detailed error reporting
-                logger.info(f"🔎 Validating extracted code...")
+                logger.info("🔎 Validating extracted code...")
                 try:
                     self._validate_source(code)
-                    logger.info(f"✅ Code validation PASSED")
+                    logger.info("✅ Code validation PASSED")
                 except LLMModelAssemblerError as val_exc:
                     # LOG FAILED GENERATION FOR ANALYSIS
                     logger.error(f"🚫 LLM GENERATION {attempt + 1} FAILED - Logging for analysis:")
                     logger.error(f"📋 Validation error: {val_exc}")
                     logger.error(f"📦 Raw LLM response: {raw}")
-                    logger.error(f"🔍 Extracted code that failed validation:")
+                    logger.error("🔍 Extracted code that failed validation:")
                     logger.error(f"📏 Code length: {len(code)} chars")
                     logger.error(f"📝 Failed code content:\n{code}")
-                    logger.error(f"📄 Failed code lines:")
+                    logger.error("📄 Failed code lines:")
                     for i, line in enumerate(code.split('\n')[:30]):
                         logger.error(f"  {i+1:2d}: {line}")
-                    
+
                     if "class definition" in str(val_exc):
                         # Check what classes exist in the generated code
                         try:
@@ -527,20 +523,20 @@ class LLMModelAssembler:
                             logger.error(f"🔍 Classes found in failed code: {class_names}")
                         except Exception as parse_exc:
                             logger.error(f"❌ Could not parse failed code for class analysis: {parse_exc}")
-                    
+
                     logger.info(f"🔄 Retry {attempt + 2}/{max_llm_retries} with improved prompt...")
                     raise val_exc  # Re-raise to trigger retry logic
-                
+
                 # Save the validated code
                 if save_model_code is not None:
                     save_model_code(out_path, code, overwrite=True)
                 else:
                     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
                     Path(out_path).write_text(code, encoding="utf-8")
-                
+
                 logger.info(f"💾 Model assembled via LLM and saved to {out_path} (attempt {attempt + 1})")
-                logger.info(f"🎉 LLM ASSEMBLER SUCCESS!")
-                
+                logger.info("🎉 LLM ASSEMBLER SUCCESS!")
+
                 return {
                     "path": out_path,
                     "via": "llm",
@@ -549,22 +545,22 @@ class LLMModelAssembler:
                     "attempts": attempt + 1,
                     "sandbox_error": sandbox_error,  # Include original error for tracking
                 }
-                
+
             except Exception as exc:
                 # Enhanced logging to help debug LLM failures
                 logger.error(f"❌ LLM attempt {attempt + 1}/{max_llm_retries} failed: {exc}")
-                
+
                 if attempt < max_llm_retries - 1:
                     # Add error feedback to prompt for next attempt
                     if hasattr(exc, 'args') and exc.args:
                         error_msg = str(exc.args[0])
                         logger.info(f"📝 Adding error feedback for retry: {error_msg}")
                         # The error feedback will be included in next attempt's prompt
-                
+
                 if attempt == max_llm_retries - 1:
                     # Last attempt failed, log comprehensive details for analysis
                     logger.error(f"🚫 LLM ASSEMBLER FAILED after {max_llm_retries} attempts")
-                    
+
                     # Log all details for prompt improvement analysis (safe access)
                     try:
                         if 'raw' in locals():
@@ -573,7 +569,7 @@ class LLMModelAssembler:
                             logger.error(f"📄 Final attempt extracted code: {locals()['code']}")
                     except NameError:
                         logger.error("📦 Final attempt details unavailable")
-                    
+
                     logger.info("🔄 LLM fallback complete - deterministic-first already attempted")
                 else:
                     logger.info(f"🔄 Retrying LLM generation (attempt {attempt + 2})")
@@ -612,18 +608,17 @@ Example response:
 Response:"""
 
 # Convenience default assembler instance
-_default_assembler: Optional[LLMModelAssembler] = None
+_default_assembler: LLMModelAssembler | None = None
 
 
 def assemble_from_config(
-    model_config: Dict[str, Any],
+    model_config: dict[str, Any],
     output_path: str,
     use_llm: bool = True,
-    llm_kwargs: Optional[Dict[str, Any]] = None,
-    sandbox_error: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Wrapper that creates a default LLMModelAssembler with llm_kwargs and calls it.
+    llm_kwargs: dict[str, Any] | None = None,
+    sandbox_error: str | None = None,
+) -> dict[str, Any]:
+    """Wrapper that creates a default LLMModelAssembler with llm_kwargs and calls it.
     """
     global _default_assembler
     if _default_assembler is None:

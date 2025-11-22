@@ -1,5 +1,4 @@
-"""
-pytorch_tools package
+"""pytorch_tools package
 
 This package will contain PyTorch-specific tool implementations used by the
 PyTorch ML Research Agent MVP. Submodules expected to live under this package
@@ -28,13 +27,13 @@ import logging
 from typing import Dict, List, Optional
 
 __all__ = [
+    "__version__",
+    "available_tools",
+    "get_tool",
+    "llm",
     "model_assembler",
     "model_summary",
     "quick_evaluator",
-    "llm",
-    "available_tools",
-    "get_tool",
-    "__version__",
 ]
 
 __version__ = "0.1.0"
@@ -48,7 +47,7 @@ model_summary = None
 quick_evaluator = None
 llm = None
 
-_import_map: Dict[str, Optional[object]] = {
+_import_map: dict[str, object | None] = {
     "model_assembler": None,
     "model_summary": None,
     "quick_evaluator": None,
@@ -67,22 +66,21 @@ for _name in list(_import_map.keys()):
         _logger.debug("pytorch_tools: could not import %s: %s", _name, _exc)
 
 
-def available_tools() -> List[str]:
-    """
-    Return a list of tool submodule names that were successfully imported.
+def available_tools() -> list[str]:
+    """Return a list of tool submodule names that were successfully imported.
 
     Examples
     --------
     >>> from pytorch_researcher.src.pytorch_tools import available_tools
     >>> available_tools()
     ['model_assembler', 'model_summary']
+
     """
     return [name for name, mod in _import_map.items() if mod is not None]
 
 
 def get_tool(name: str):
-    """
-    Retrieve the imported tool module by name.
+    """Retrieve the imported tool module by name.
 
     Args:
         name: One of the known submodule names (e.g., 'model_assembler').
@@ -92,6 +90,7 @@ def get_tool(name: str):
 
     Raises:
         KeyError: If the name is unknown or the tool is not available.
+
     """
     if name not in _import_map:
         raise KeyError(f"Unknown pytorch_tools module: {name!r}")

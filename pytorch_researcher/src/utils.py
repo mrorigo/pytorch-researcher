@@ -4,8 +4,7 @@ import sys
 
 
 def read_file(file_path: str) -> str:
-    """
-    Safely reads the content of a specified file.
+    """Safely reads the content of a specified file.
 
     Args:
         file_path (str): The absolute or relative path to the file to be read.
@@ -16,19 +15,19 @@ def read_file(file_path: str) -> str:
     Raises:
         FileNotFoundError: If the file_path does not exist.
         PermissionError: If the agent does not have read permissions.
+
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     if not os.access(file_path, os.R_OK):
         raise PermissionError(f"Permission denied: Cannot read file {file_path}")
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         return f.read()
 
 
 def write_file(file_path: str, content: str, overwrite: bool = True) -> bool:
-    """
-    Safely writes content to a specified file, creating it if it doesn't exist or overwriting it if it does.
+    """Safely writes content to a specified file, creating it if it doesn't exist or overwriting it if it does.
 
     Args:
         file_path (str): The absolute or relative path to the file.
@@ -41,6 +40,7 @@ def write_file(file_path: str, content: str, overwrite: bool = True) -> bool:
     Raises:
         FileExistsError: If overwrite is False and the file already exists.
         PermissionError: If the agent does not have write permissions to the directory or file.
+
     """
     directory = os.path.dirname(file_path)
     if directory and not os.path.exists(directory):
@@ -62,14 +62,14 @@ def write_file(file_path: str, content: str, overwrite: bool = True) -> bool:
 
 
 def bash_run(command: str) -> dict:
-    """
-    Executes a shell command and captures its standard output, standard error, and exit code.
+    """Executes a shell command and captures its standard output, standard error, and exit code.
 
     Args:
         command (str): The shell command to execute.
 
     Returns:
         dict: A dictionary containing 'stdout' (str), 'stderr' (str), and 'exit_code' (int).
+
     """
     process = subprocess.run(
         command,
@@ -86,8 +86,7 @@ def bash_run(command: str) -> dict:
 
 
 def list_directory(directory_path: str) -> list[str]:
-    """
-    Lists the contents (files and subdirectories) of a specified directory.
+    """Lists the contents (files and subdirectories) of a specified directory.
 
     Args:
         directory_path (str): The absolute or relative path to the directory.
@@ -98,6 +97,7 @@ def list_directory(directory_path: str) -> list[str]:
     Raises:
         FileNotFoundError: If the directory_path does not exist or is not a directory.
         PermissionError: If the agent does not have read permissions for the directory.
+
     """
     if not os.path.exists(directory_path):
         raise FileNotFoundError(f"Directory not found: {directory_path}")
@@ -112,8 +112,7 @@ def list_directory(directory_path: str) -> list[str]:
 
 
 def python_run(script_path: str, args: list = None) -> dict:
-    """
-    Executes a Python script using the currently active Python interpreter and captures its
+    """Executes a Python script using the currently active Python interpreter and captures its
     standard output, standard error, and exit code.
 
     Args:
@@ -125,6 +124,7 @@ def python_run(script_path: str, args: list = None) -> dict:
 
     Raises:
         FileNotFoundError: If script_path does not exist.
+
     """
     if not os.path.exists(script_path):
         raise FileNotFoundError(f"Python script not found: {script_path}")
@@ -152,8 +152,7 @@ def python_run(script_path: str, args: list = None) -> dict:
 
 
 def create_pytorch_project_scaffold(project_name: str) -> str:
-    """
-    Create a standardized project directory structure for a new PyTorch research project,
+    """Create a standardized project directory structure for a new PyTorch research project,
     including necessary subdirectories and an initial `registry.json` file.
 
     Args:
@@ -165,6 +164,7 @@ def create_pytorch_project_scaffold(project_name: str) -> str:
     Raises:
         FileExistsError: If a directory with project_name already exists.
         PermissionError: If the agent cannot create directories.
+
     """
     project_root_path = os.path.abspath(project_name)
 

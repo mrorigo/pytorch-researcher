@@ -210,6 +210,8 @@ select = [
 ]
 ignore = [
     "E501",  # line too long, handled by black
+    "D400",  # docstring first line should end with period
+    "D415",  # docstring first line should end with punctuation
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "W191",  # indentation contains tabs

@@ -1,6 +1,5 @@
 # pytorch-researcher/pytorch_researcher/src/pytorch_tools/model_summary.py
-"""
-pytorch_model_summary - Lightweight model introspection utility
+"""pytorch_model_summary - Lightweight model introspection utility
 
 This module provides helper functions to:
 - load a Python module from a source file path
@@ -21,10 +20,9 @@ import importlib.util
 import inspect
 import json
 import logging
-import sys
 import types
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 # Optional LLM client abstractions (factored out for DRYness).
 # Import is best-effort so environments without the llm module still work.
@@ -53,10 +51,9 @@ except Exception:  # pragma: no cover - optional
 
 
 def _load_module_from_path(
-    path: str, module_name: Optional[str] = None
+    path: str, module_name: str | None = None
 ) -> types.ModuleType:
-    """
-    Dynamically load a Python module from a file path.
+    """Dynamically load a Python module from a file path.
 
     Parameters
     ----------
@@ -75,6 +72,7 @@ def _load_module_from_path(
     ------
     FileNotFoundError if the file doesn't exist.
     RuntimeError if module cannot be loaded.
+
     """
     p = Path(path)
     if not p.exists():
@@ -100,10 +98,9 @@ def _load_module_from_path(
 
 
 def _find_model_class(
-    module: types.ModuleType, class_name: Optional[str] = None
+    module: types.ModuleType, class_name: str | None = None
 ) -> type:
-    """
-    Find an nn.Module subclass in the module.
+    """Find an nn.Module subclass in the module.
 
     If `class_name` is provided, it tries to retrieve that class specifically.
     Otherwise, it searches for the first subclass of `torch.nn.Module`.
@@ -139,10 +136,9 @@ def _find_model_class(
 
 
 def _instantiate_model(
-    cls: type, init_kwargs: Optional[Dict[str, Any]] = None, device: str = "cpu"
+    cls: type, init_kwargs: dict[str, Any] | None = None, device: str = "cpu"
 ) -> nn.Module:
-    """
-    Instantiate model class with init_kwargs (if any) and move to device.
+    """Instantiate model class with init_kwargs (if any) and move to device.
 
     Raises TypeError/RuntimeError if instantiation fails.
     """
@@ -165,9 +161,8 @@ def _instantiate_model(
     return model
 
 
-def _count_parameters(model: nn.Module) -> Tuple[int, int]:
-    """
-    Return (total_params, trainable_params) for the model.
+def _count_parameters(model: nn.Module) -> tuple[int, int]:
+    """Return (total_params, trainable_params) for the model.
     """
     total = 0
     trainable = 0
@@ -180,10 +175,9 @@ def _count_parameters(model: nn.Module) -> Tuple[int, int]:
 
 
 def _run_dummy_forward(
-    model: nn.Module, input_size: Tuple[int, ...], device: str = "cpu"
-) -> Dict[str, Any]:
-    """
-    Run a single forward pass with a dummy tensor to validate shapes and gather a brief
+    model: nn.Module, input_size: tuple[int, ...], device: str = "cpu"
+) -> dict[str, Any]:
+    """Run a single forward pass with a dummy tensor to validate shapes and gather a brief
     operational summary. Returns a dict containing output shape and any exception info.
 
     Note: This executes model.forward once under torch.no_grad(); it is only used for
@@ -219,16 +213,15 @@ def _run_dummy_forward(
 
 def summarize_model_from_path(
     path: str,
-    class_name: Optional[str] = None,
-    input_size: Tuple[int, ...] = (1, 3, 32, 32),
-    init_kwargs: Optional[Dict[str, Any]] = None,
+    class_name: str | None = None,
+    input_size: tuple[int, ...] = (1, 3, 32, 32),
+    init_kwargs: dict[str, Any] | None = None,
     device: str = "cpu",
     use_torchinfo: bool = True,
     use_llm: bool = False,
-    llm_client: Optional[BaseLLMClient] = None,
-) -> Dict[str, Any]:
-    """
-    High-level helper to summarize a model defined in a Python source file.
+    llm_client: BaseLLMClient | None = None,
+) -> dict[str, Any]:
+    """High-level helper to summarize a model defined in a Python source file.
 
     Parameters
     ----------
@@ -256,8 +249,9 @@ def summarize_model_from_path(
     - trainable_params (int)
     - output_shape (tuple) or None
     - error (str) when success is False
+
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "success": False,
         "summary_str": "",
         "total_params": None,

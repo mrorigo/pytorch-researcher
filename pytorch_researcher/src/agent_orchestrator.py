@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-ML Research Agent Orchestrator - baseline implementation
+"""ML Research Agent Orchestrator - baseline implementation.
 
 This module provides the primary CLI entrypoint for the research agent. It orchestrates
 the planning LLM, LLM-backed model assembler, sandbox validator, summarizer,
@@ -46,6 +45,9 @@ from pytorch_researcher.src.pytorch_tools.quick_evaluator import (
     QuickEvalConfig,
     quick_evaluate_once,
 )
+
+# Research report generator for automatic report generation
+from pytorch_researcher.src.research_report_generator import generate_research_report
 from pytorch_researcher.src.tools.sandbox.sandbox_runner import run_sandboxed_harness
 
 # Core utilities (project scaffold + simple file helpers)
@@ -55,25 +57,22 @@ from pytorch_researcher.src.utils import (
     write_file,
 )
 
-# Research report generator for automatic report generation
-from pytorch_researcher.src.research_report_generator import generate_research_report
-
 LOG = logging.getLogger("agent.orchestrator")
 
 
 def _ensure_logger(verbose: bool = False) -> None:
     """Ensure the root logger is configured for console output."""
     fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    
+
     # Configure root logger to ensure proper propagation
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         root_handler = logging.StreamHandler(sys.stdout)
         root_handler.setFormatter(logging.Formatter(fmt))
         root_logger.addHandler(root_handler)
-    
+
     root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-    
+
     # Configure the orchestrator logger - DO NOT PROPAGATE to avoid duplication
     if not LOG.handlers:
         handler = logging.StreamHandler(sys.stdout)
@@ -81,19 +80,19 @@ def _ensure_logger(verbose: bool = False) -> None:
         LOG.addHandler(handler)
     LOG.setLevel(logging.DEBUG if verbose else logging.INFO)
     LOG.propagate = False  # 🔧 CRITICAL FIX: Prevent duplicate logging
-    
+
     # Configure child loggers to propagate to parent (but not to root)
     child_loggers = [
         "pytorch_researcher.src.planning_llm.client",
         "pytorch_researcher.src.pytorch_tools.llm",
         "pytorch_researcher.src.memory"
     ]
-    
+
     for logger_name in child_loggers:
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.DEBUG if verbose else logging.INFO)
         logger.propagate = True  # Child loggers propagate to orchestrator logger
-    
+
     # Set specific loggers to appropriate levels for debugging
     logging.getLogger("pytorch_researcher.src.planning_llm.client").setLevel(logging.DEBUG if verbose else logging.INFO)
     logging.getLogger("pytorch_researcher.src.pytorch_tools.llm").setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -105,7 +104,7 @@ def _registry_path_for(project_root: str) -> Path:
     return Path(project_root) / "experiments" / "registry.json"
 
 
-def _append_registry(project_root: str, entry: Dict[str, Any]) -> None:
+def _append_registry(project_root: str, entry: dict[str, Any]) -> None:
     """Append a new entry to the project's registry.json."""
     reg = _registry_path_for(project_root)
     try:
@@ -116,7 +115,7 @@ def _append_registry(project_root: str, entry: Dict[str, Any]) -> None:
     write_file(str(reg), json.dumps(current, indent=2), overwrite=True)
 
 
-def _build_evaluator_callable(evaluation_config: Dict[str, Any] | None = None) -> Any:
+def _build_evaluator_callable(evaluation_config: dict[str, Any] | None = None) -> Any:
     """Return a callable for model evaluation suitable for the orchestrator.
 
     The callable signature is `(model_path: str, model_config: dict) -> dict`.
@@ -127,9 +126,10 @@ def _build_evaluator_callable(evaluation_config: Dict[str, Any] | None = None) -
     Args:
         evaluation_config: Optional evaluation configuration from planning LLM.
                           If provided, overrides default QuickEvalConfig values.
+
     """
 
-    def _evaluator(model_path: str, model_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _evaluator(model_path: str, model_config: dict[str, Any]) -> dict[str, Any]:
         try:
             # Import module dynamically (using __import__ to avoid top-level import errors)
             # This ensures modules are loaded into a distinct namespace per evaluation.
@@ -138,9 +138,10 @@ def _build_evaluator_callable(evaluation_config: Dict[str, Any] | None = None) -
             # Generate a unique module name for each evaluation to prevent conflicts
             mod_name = f"eval_mod_{int(datetime.utcnow().timestamp())}"
             spec = _il.spec_from_file_location(mod_name, model_path)
-            assert (
-                spec is not None and spec.loader is not None
-            ), "Failed to create module spec."
+            if spec is None:
+                raise RuntimeError("Failed to create module spec.")
+            if spec.loader is None:
+                raise RuntimeError("Module spec loader missing.")
             module = _il.module_from_spec(spec)
             spec.loader.exec_module(module)  # type: ignore
 
@@ -192,7 +193,7 @@ def run(
     max_iter: int = 5,
     target_accuracy: float = 0.7,
     verbose: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the planning-driven orchestrator and return a run report.
 
     This function sets up the project scaffold, wires the necessary components,
@@ -212,9 +213,10 @@ def run(
 
     Returns:
         A dictionary containing `project_root` and the orchestrator's `report`.
+
     """
     _ensure_logger(verbose)
-    results: Dict[str, Any] = {}
+    results: dict[str, Any] = {}
     project_root = None
 
     try:
@@ -229,15 +231,13 @@ def run(
         # Initialize manual memory manager for controlled memory operations
         LOG.info("🧠 MEMORY SYSTEM: Initializing conscious memory management...")
         try:
-            from pytorch_researcher.src.memory import create_manual_memory_manager
-            
             memory_manager = create_manual_memory_manager(
                 llm_base_url=llm_base_url,
                 llm_model=llm_model,
                 llm_api_key=llm_api_key,
                 verbose=verbose
             )
-            
+
             # Detailed memory initialization logging
             if memory_manager.enabled:
                 LOG.info("🧠 MEMORY SYSTEM: ✅ MANUAL MEMORY MANAGER ACTIVE")
@@ -247,11 +247,10 @@ def run(
                 LOG.info("🧠 MEMORY SYSTEM:   - All memory operations are explicit and controlled")
             else:
                 LOG.info("🧠 MEMORY SYSTEM: ⚠️ Manual memory manager initialized but disabled")
-            
+
         except Exception as e:
             LOG.warning(f"🧠 MEMORY SYSTEM: ❌ Manual memory manager initialization failed, continuing without memory: {e}")
             # Create a minimal disabled memory manager as fallback
-            from pytorch_researcher.src.memory import ManualMemoryContextManager
             disabled_memori = Memori(conscious_ingest=False, auto_ingest=False)
             disabled_memory_manager = ManualMemoryContextManager(disabled_memori)
             disabled_memory_manager.enable_manual_mode()
@@ -259,7 +258,7 @@ def run(
 
         # Generate run ID for LLM logging
         run_id = f"run-{datetime.utcnow().isoformat()}"
-        
+
         # Instantiate planning LLM client (now using LiteLLM internally with LLM logging)
         planning_client = PlanningLLMClient(
             base_url=llm_base_url, model=llm_model, api_key=llm_api_key, run_id=run_id
@@ -291,7 +290,8 @@ def run(
         evaluator_callable = _build_evaluator_callable(evaluation_config)
 
         # Registry writer for persisting iteration data
-        registry_writer = lambda entry: _append_registry(project_root, entry)
+        def registry_writer(entry: Dict[str, Any]) -> None:
+            _append_registry(project_root, entry)
 
         # Instantiate orchestrator
         orchestrator = Orchestrator(
@@ -306,11 +306,11 @@ def run(
         )
 
         LOG.info("Starting orchestrator loop (goal=%r)", goal)
-        
+
         # Check if orchestrator supports memory manager
         if hasattr(orchestrator, 'memory_manager'):
             orchestrator.memory_manager = memory_manager
-        
+
         report = orchestrator.run_with_proposal(goal=goal, workdir=project_root, keep_artifacts=keep, initial_proposal=proposal)
         LOG.info(
             "Orchestrator finished with final_status=%s", report.get("final_status")
@@ -328,9 +328,9 @@ def run(
                         # Store the memory ID and let the report generator fetch content
                         enhanced_insights[insight_type] = memory_id
                         LOG.info(f"🧠 MEMORY SYSTEM:   - {insight_type}: {memory_id[:12]}...")
-                    
+
                     report["memory_insights"] = enhanced_insights
-                    
+
                     # Add memory usage tracking data to the report
                     if hasattr(orchestrator, '_memory_usage_by_phase'):
                         report["memory_usage_by_phase"] = orchestrator._memory_usage_by_phase
@@ -351,11 +351,11 @@ def run(
             "memory_enabled": memory_manager.enabled,
         }
         _append_registry(project_root, run_record)
-        
+
         results["report"] = report
         results["success"] = True
         results["memory_enabled"] = memory_manager.enabled
-        
+
         # 📊 AUTOMATIC RESEARCH REPORT GENERATION
         LOG.info("📊 Generating comprehensive research report...")
         try:
@@ -372,7 +372,7 @@ def run(
         except Exception as e:
             LOG.warning(f"⚠️ Failed to generate research report: {e}")
             results["report_generation_error"] = str(e)
-        
+
         return results
 
     except (
@@ -430,7 +430,7 @@ def _parse_cli_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Main entrypoint for the orchestrator CLI."""
+    """Run the orchestrator CLI."""
     args = _parse_cli_args()
     _ensure_logger(args.verbose)
 
@@ -448,21 +448,21 @@ def main() -> None:
         )
     except Exception as exc:
         LOG.exception("Orchestrator run encountered a fatal error: %s", exc)
-        print("\n=== ML Research Agent Orchestrator Run ===")
-        print("Status: ERROR")
-        print(str(exc))
+        LOG.error("=== ML Research Agent Orchestrator Run ===")
+        LOG.error("Status: ERROR")
+        LOG.error(str(exc))
         sys.exit(1)
 
-    print("\n=== ML Research Agent Orchestrator Run ===")
-    print(f"project_root: {result.get('project_root')}")
-    print("Status: SUCCESS")
-    print("report:", result.get("report"))
-    
+    LOG.info("=== ML Research Agent Orchestrator Run ===")
+    LOG.info("project_root: %s", result.get("project_root"))
+    LOG.info("Status: SUCCESS")
+    LOG.info("report: %s", result.get("report"))
+
     # Display research report information if generated
     report_path = result.get('report_path')
     if report_path:
-        print(f"📊 Research Report: {report_path}")
-        print("   The report includes detailed analysis of all iterations, memory insights, and recommendations.")
+        LOG.info("📊 Research Report: %s", report_path)
+        LOG.info("   The report includes detailed analysis of all iterations, memory insights, and recommendations.")
 
 
 if __name__ == "__main__":

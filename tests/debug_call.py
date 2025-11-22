@@ -16,7 +16,6 @@ Run it from the project environment to observe differences in behavior.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
