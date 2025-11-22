@@ -13,6 +13,7 @@ Features:
 - Memory context logging
 - Run-level and iteration-level organization
 """
+# ruff: noqa: T201
 
 import json
 import logging

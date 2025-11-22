@@ -1,4 +1,4 @@
-# Memory Management Module for PyTorch Research Agent
+"""Memory management utilities for the PyTorch Research Agent."""
 
 from .manual_memory_manager import (
     ManualMemoryContextManager,

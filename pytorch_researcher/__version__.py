@@ -1,3 +1,4 @@
+# ruff: noqa: T201
 """Version information for PyTorch ML Research Agent.
 
 This module provides version information for the package.

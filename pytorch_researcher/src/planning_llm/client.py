@@ -93,6 +93,7 @@ class PlanningLLMClient(LiteLLMClient):
         system_prompt: str | None = None,
         run_id: str | None = None,
     ) -> None:
+        """Initialize the planning LLM client."""
         super().__init__(
             base_url=base_url,
             model_name=model,
@@ -198,6 +199,7 @@ class PlanningLLMClient(LiteLLMClient):
         return prompt
 
     def get_system_prompt(self) -> str:
+        """Return the configured system prompt string."""
         return (
             self.system_prompt
             if isinstance(self.system_prompt, str)
@@ -489,6 +491,7 @@ class Orchestrator:
         target_accuracy: float = 0.70,
         memory_manager: Any = None,
     ) -> None:
+        """Initialize the orchestrator with injected tooling."""
         self.planning_client = planning_client
         self.assembler = assembler
         self.summarizer = summarizer

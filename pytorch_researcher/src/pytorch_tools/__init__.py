@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 __all__ = [
     "__version__",

@@ -162,8 +162,7 @@ def _instantiate_model(
 
 
 def _count_parameters(model: nn.Module) -> tuple[int, int]:
-    """Return (total_params, trainable_params) for the model.
-    """
+    """Return (total_params, trainable_params) for the model."""
     total = 0
     trainable = 0
     for p in model.parameters():
@@ -234,6 +233,10 @@ def summarize_model_from_path(
         Input shape tuple including batch dimension (e.g., (1,3,32,32)).
     init_kwargs:
         Optional dict of kwargs to pass to the model's constructor.
+    use_llm:
+        Whether to use an LLM client for enhanced summary generation.
+    llm_client:
+        Optional LLM client instance to use when `use_llm` is True.
     device:
         Device string for instantiation and dummy forward (e.g., 'cpu' or 'cuda:0').
     use_torchinfo:

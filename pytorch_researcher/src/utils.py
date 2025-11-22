@@ -1,3 +1,5 @@
+"""Utility helpers for file I/O, subprocess management, and scaffolding."""
+
 import os
 import subprocess
 import sys
@@ -62,7 +64,7 @@ def write_file(file_path: str, content: str, overwrite: bool = True) -> bool:
 
 
 def bash_run(command: str) -> dict:
-    """Executes a shell command and captures its standard output, standard error, and exit code.
+    """Execute a shell command and capture its standard output, standard error, and exit code.
 
     Args:
         command (str): The shell command to execute.
@@ -86,7 +88,7 @@ def bash_run(command: str) -> dict:
 
 
 def list_directory(directory_path: str) -> list[str]:
-    """Lists the contents (files and subdirectories) of a specified directory.
+    """List the contents (files and subdirectories) of a specified directory.
 
     Args:
         directory_path (str): The absolute or relative path to the directory.
@@ -111,9 +113,8 @@ def list_directory(directory_path: str) -> list[str]:
     return os.listdir(directory_path)
 
 
-def python_run(script_path: str, args: list = None) -> dict:
-    """Executes a Python script using the currently active Python interpreter and captures its
-    standard output, standard error, and exit code.
+def python_run(script_path: str, args: list[str] | None = None) -> dict:
+    """Execute a Python script using the active interpreter and capture output.
 
     Args:
         script_path (str): The absolute or relative path to the Python script to execute.
@@ -135,7 +136,7 @@ def python_run(script_path: str, args: list = None) -> dict:
     # Coerce all args to strings and ensure unbuffered output using -u
     args = [str(a) for a in args]
     # Use sys.executable with -u for reliable interpreter invocation and unbuffered IO
-    command = [sys.executable, "-u", script_path] + args
+    command = [sys.executable, "-u", script_path, *args]
 
     process = subprocess.run(
         command,
@@ -152,8 +153,7 @@ def python_run(script_path: str, args: list = None) -> dict:
 
 
 def create_pytorch_project_scaffold(project_name: str) -> str:
-    """Create a standardized project directory structure for a new PyTorch research project,
-    including necessary subdirectories and an initial `registry.json` file.
+    """Create a standardized project directory structure and initial registry.
 
     Args:
         project_name (str): The name of the project.
@@ -174,9 +174,7 @@ def create_pytorch_project_scaffold(project_name: str) -> str:
     try:
         os.makedirs(project_root_path)
     except OSError as e:
-        raise PermissionError(
-            f"Permission denied: Cannot create directory {project_root_path} - {e}"
-        )
+        raise PermissionError(f"Permission denied: Cannot create directory {project_root_path} - {e}") from e
 
     subdirectories = ["src", "configs", "experiments"]
     for subdir in subdirectories:

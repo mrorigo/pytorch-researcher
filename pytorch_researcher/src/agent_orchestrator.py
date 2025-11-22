@@ -18,7 +18,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from memori import Memori
 
@@ -290,7 +290,7 @@ def run(
         evaluator_callable = _build_evaluator_callable(evaluation_config)
 
         # Registry writer for persisting iteration data
-        def registry_writer(entry: Dict[str, Any]) -> None:
+        def registry_writer(entry: dict[str, Any]) -> None:
             _append_registry(project_root, entry)
 
         # Instantiate orchestrator

@@ -272,8 +272,8 @@ def assemble_model_code(cfg: ModelConfig) -> str:
     lines.append(f"class {cfg.class_name}(nn.Module):")
     if doc:
         lines.append('    """')
-        for l in cfg.docstring.splitlines():
-            lines.append(f"    {l}")
+        for line_content in cfg.docstring.splitlines():
+            lines.append(f"    {line_content}")
         lines.append('    """')
     lines.append("    def __init__(self):")
     lines.append("        super().__init__()")

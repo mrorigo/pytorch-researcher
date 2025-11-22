@@ -194,7 +194,7 @@ exclude_lines = [
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-select = [
+lint.select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
     "F",  # pyflakes
@@ -208,13 +208,17 @@ select = [
     "PT", # flake8-pytest-style
     "RUF", # ruff-specific rules
 ]
-ignore = [
+lint.ignore = [
     "E501",  # line too long, handled by black
     "D400",  # docstring first line should end with period
+    "D400",  # docstring first line should end with period
+    "D401",  # First line of docstring should be in imperative mood: "Executes a Python script using the currently active Python interpreter and captures its
     "D415",  # docstring first line should end with punctuation
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "W191",  # indentation contains tabs
+    "D205",  # 1 blank line required between summary line and description
+    "D100",  # missing docstring in public module
 ]
 exclude = [
     ".git",
@@ -224,11 +228,11 @@ exclude = [
     "pytorch_researcher/_version.py",
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/*" = ["D", "PT", "T20"]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 10
 
 [tool.bandit]

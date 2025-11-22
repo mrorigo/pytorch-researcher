@@ -54,6 +54,7 @@ class BaseLLMClient:
     def call(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
     ) -> dict[str, Any]:
+        """Execute an LLM call."""
         raise NotImplementedError(
             "BaseLLMClient.call must be implemented by subclasses"
         )
@@ -69,6 +70,7 @@ class DisabledLLMClient(BaseLLMClient):
     def call(
         self, prompt: str, temperature: float = 0.0, timeout: int = 300
     ) -> dict[str, Any]:
+        """Error-raising call for disabled LLM usage."""
         raise LLMClientError("LLM usage is disabled (DisabledLLMClient was provided)")
 
 
@@ -102,6 +104,7 @@ class LiteLLMClient(BaseLLMClient):
         max_retries: int = 2,
         retry_backoff: float = 1.0,
     ) -> None:
+        """Initialize the LiteLLM-backed client."""
         if not base_url:
             raise ValueError("base_url must be provided for LiteLLMClient")
         self.base_url = base_url.rstrip("/")

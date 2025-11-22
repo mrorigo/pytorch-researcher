@@ -7,6 +7,7 @@ This module provides robust evaluation capabilities including:
 - Reproducible evaluation with fixed seeds
 - Comprehensive performance analysis
 """
+# ruff: noqa: T201
 
 from __future__ import annotations
 
@@ -173,7 +174,6 @@ except ImportError:
     def roc_curve(y_true, y_score, **kwargs):
         """Fallback ROC curve that returns simple thresholds."""
         # Simple fallback: return basic ROC points
-        n_samples = len(y_true)
         fpr = np.array([0.0, 0.5, 1.0])
         tpr = np.array([0.0, 0.5, 1.0])
         thresholds = np.array([2.0, 1.0, 0.0])
@@ -197,7 +197,7 @@ except ImportError:
         cm = [[0] * len(classes) for _ in classes]
         class_to_idx = {cls: i for i, cls in enumerate(classes)}
 
-        for true, pred in zip(y_true, y_pred):
+        for true, pred in zip(y_true, y_pred, strict=False):
             i = class_to_idx[true]
             j = class_to_idx[pred]
             cm[i][j] += 1
@@ -206,7 +206,7 @@ except ImportError:
 
     def accuracy_score(y_true, y_pred):
         """Simple accuracy implementation."""
-        return sum(1 for a, b in zip(y_true, y_pred) if a == b) / len(y_true)
+        return sum(1 for a, b in zip(y_true, y_pred, strict=False) if a == b) / len(y_true)
 
 
 _logger = logging.getLogger(__name__)
@@ -291,14 +291,14 @@ class QuickEvalConfig:
 
 
 class QuickEvaluatorError(Exception):
-    pass
+    """Raised when quick evaluation cannot be completed."""
 
 
 class EnhancedQuickEvaluator:
-    """Enhanced evaluator with multi-seed support and robust dataset integration.
-    """
+    """Enhanced evaluator with multi-seed support and robust dataset integration."""
 
     def __init__(self, cfg: QuickEvalConfig):
+        """Initialize evaluator with quick evaluation config."""
         self.cfg = cfg
         self.device = cfg.device if TORCH_AVAILABLE else "cpu"
 
@@ -1411,7 +1411,7 @@ class EnhancedQuickEvaluator:
             criterion = nn.CrossEntropyLoss()
             initial_lr = self.cfg.learning_rate
 
-            for epoch in range(num_epochs):
+            for _ in range(num_epochs):
                 # Track current learning rate
                 current_lr = (
                     optimizer.param_groups[0]["lr"] if optimizer else initial_lr
@@ -1672,16 +1672,13 @@ class EnhancedQuickEvaluator:
 
         try:
             train_loss = learning_dynamics["train_loss"]
-            val_loss = learning_dynamics["val_loss"]
-            train_accuracy = learning_dynamics["train_accuracy"]
+            _ = learning_dynamics["val_loss"]
+            _ = learning_dynamics["train_accuracy"]
             val_accuracy = learning_dynamics["val_accuracy"]
             gradient_norms = learning_dynamics["gradient_norms"]
 
             # Overall training assessment
             if len(train_loss) > 0:
-                final_train_loss = train_loss[-1]
-                final_val_loss = val_loss[-1]
-                final_train_accuracy = train_accuracy[-1]
                 final_val_accuracy = val_accuracy[-1]
 
                 # Performance assessment

@@ -12,6 +12,7 @@ Features:
 - Failure analysis and pattern recognition
 - Professional formatting with tables, charts, and structured data
 """
+# ruff: noqa: T201
 
 import json
 from datetime import datetime
@@ -159,9 +160,9 @@ class ResearchReportGenerator:
             with open(self.registry_path, encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            raise FileNotFoundError(f"Registry file not found: {self.registry_path}")
+            raise FileNotFoundError(f"Registry file not found: {self.registry_path}") from None
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in registry file: {e}")
+            raise ValueError(f"Invalid JSON in registry file: {e}") from e
 
     def _parse_research_data(self, registry_data: list[dict[str, Any]]) -> dict[str, Any]:
         """Parse and structure the research data."""
@@ -349,6 +350,14 @@ The research followed an iterative methodology with the following phases:
             sandbox = iteration.get('sandbox', {})
             assemble = iteration.get('assemble', {})
 
+            duration_val = sandbox.get('duration', 'N/A')
+            if isinstance(duration_val, (int, float)):
+                duration_str = f"{duration_val}s"
+            elif duration_val == 'N/A':
+                duration_str = "N/A"
+            else:
+                duration_str = f"{duration_val}s"
+
             content += f"""### Iteration {iteration_num}
 
 #### Model Configuration
@@ -365,7 +374,7 @@ The research followed an iterative methodology with the following phases:
 #### Sandbox Validation
 - **Status**: {'✅ PASSED' if sandbox.get('success') else '❌ FAILED'}
 - **Return Code**: {sandbox.get('returncode', 'N/A')}
-- **Duration**: {sandbox.get('duration', 'N/A') if isinstance(sandbox.get('duration'), (int, float)) else sandbox.get('duration', 'N/A')}{'' if sandbox.get('duration') == 'N/A' else 's'}
+- **Duration**: {duration_str}
 """
 
             if sandbox.get('success'):
@@ -711,7 +720,6 @@ The research followed an iterative methodology with the following phases:
         content = "## Recommendations\n\n"
 
         final_status = research_data.get('final_status', '')
-        total_iters = research_data.get('total_iterations', 0)
         successful_iters = research_data.get('successful_iterations', 0)
 
         if final_status == 'achieved':

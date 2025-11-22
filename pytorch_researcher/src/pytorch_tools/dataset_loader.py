@@ -8,6 +8,7 @@ This module provides robust dataset loading capabilities including:
 - Automatic preprocessing pipelines
 - Flexible configuration system
 """
+# ruff: noqa: T201
 
 from __future__ import annotations
 
@@ -391,6 +392,7 @@ class FlexibleDatasetLoader:
     """Enhanced dataset loader with extensive flexibility and support for multiple formats."""
 
     def __init__(self, config: DatasetConfig):
+        """Initialize loader with dataset configuration and cache directory."""
         self.config = config
         self.cache_dir = Path(config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -793,7 +795,7 @@ class FlexibleDatasetLoader:
         # Handle dataset splits
         split_name = self.config.split
         if split_name not in dataset:
-            split_name = "train" if "train" in dataset else list(dataset.keys())[0]
+            split_name = "train" if "train" in dataset else next(iter(dataset.keys()))
 
         train_dataset = HFDatasetWrapper(
             dataset[split_name], text_field, target_column, self.config

@@ -28,15 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-# LLM client abstractions (factored out for DRYness and easier testing)
-from pytorch_researcher.src.pytorch_tools.llm import (
-    BaseLLMClient,
-    LiteLLMClient,
-)
-
-logger = logging.getLogger(__name__)
-
-# Import the programmatic assembler (always available in this package)
+from pytorch_researcher.src.pytorch_tools.llm import BaseLLMClient, LiteLLMClient
 from pytorch_researcher.src.pytorch_tools.model_assembler import (
     ModelAssemblerError as _ModelAssemblerError,
 )
@@ -45,6 +37,8 @@ from pytorch_researcher.src.pytorch_tools.model_assembler import (
     assemble_model_code,
     save_model_code,
 )
+
+logger = logging.getLogger(__name__)
 
 # Re-export for compatibility
 ModelAssemblerError = _ModelAssemblerError
@@ -89,6 +83,7 @@ class LLMModelAssembler:
         prompt_template: str | None = None,
         llm_client: BaseLLMClient | None = None,
     ):
+        """Initialize the assembler with optional LLM connectivity."""
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") if base_url else None
         self.api_key = api_key
@@ -338,8 +333,7 @@ class LLMModelAssembler:
         return text
 
     def _validate_source(self, src: str) -> None:
-        """Validate that the source is syntactically valid Python and contains at least one class def.
-        """
+        """Validate that the source is syntactically valid and includes a class definition."""
         try:
             tree = ast.parse(src)
         except SyntaxError as e:
@@ -392,6 +386,7 @@ class LLMModelAssembler:
         sandbox_error: str | None = None,
     ) -> dict[str, Any]:
         """Generate model source from model_config, write to output_path.
+
         Returns a dict describing the result.
 
         Args:
@@ -618,8 +613,7 @@ def assemble_from_config(
     llm_kwargs: dict[str, Any] | None = None,
     sandbox_error: str | None = None,
 ) -> dict[str, Any]:
-    """Wrapper that creates a default LLMModelAssembler with llm_kwargs and calls it.
-    """
+    """Wrapper that creates a default LLMModelAssembler with llm_kwargs and calls it."""
     global _default_assembler
     if _default_assembler is None:
         llm_kwargs = llm_kwargs or {}
